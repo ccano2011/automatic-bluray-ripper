@@ -1,9 +1,12 @@
 # Path to MakeMKV CLI
 $makeMKVPath = "C:\Program Files (x86)\MakeMKV\makemkvcon.exe"
+
 # Blu-ray drive letter (replace 'D:' with the letter of your Blu-ray drive)
 $driveLetter = "D:"
+
 # Output directory on your NAS
 $outputDirectory = "\\192.168.7.213\media\Movies"
+
 # Path to MakeMKV settings file
 $settingsFilePath = "$env:USERPROFILE\.MakeMKV\settings.conf"
 
@@ -12,14 +15,39 @@ function Test-DiscInDrive {
     return (Test-Path "$driveLetter\")
 }
 
-# Function to rip Blu-ray using MakeMKV with a TrueHD audio filter
+# Function to fetch the main title number
+function Get-MainTitle {
+    & $makeMKVPath --robot info disc:0 > titles.txt
+    $titles = Get-Content titles.txt | Select-String "TINFO:0,"
+    $longest = 0
+    $mainTitle = 0
+
+    foreach ($title in $titles) {
+        if ($title -match "TINFO:0,(\d+),(\d+),") {
+            $titleNumber = [int]$matches[1]
+            $duration = [int]$matches[2]
+
+            if ($duration -gt $longest) {
+                $longest = $duration
+                $mainTitle = $titleNumber
+            }
+        }
+    }
+
+    return $mainTitle
+}
+
+# Function to rip Blu-ray using MakeMKV
 function Rip-BluRay {
     param (
         [string]$driveLetter,
         [string]$outputDirectory
     )
-    # MakeMKV CLI command with --robot for auto-ripping, only TrueHD audio, main feature
-    & $makeMKVPath --robot mkv disc:0 all "$outputDirectory" --minlength=3600 --audio=eng,TrueHD,DTS-HD,DDP --subtitle=eng --profile=default
+    $mainTitle = Get-MainTitle
+    Write-Output "Ripping main title: $mainTitle"
+    
+    # MakeMKV CLI command with --robot for auto-ripping
+    & $makeMKVPath --robot mkv disc:0 $mainTitle "$outputDirectory" --minlength=3600 --audio=eng,TrueHD,DTS-HD,DDP --subtitle=eng --subtitle-forced=eng --profile=default
     Write-Output "Rip completed and saved to $outputDirectory"
 }
 
@@ -29,11 +57,10 @@ function Update-MakeMKVKey {
         $url = "https://www.makemkv.com/forum/viewtopic.php?f=5&t=1053"
         $pageContent = Invoke-WebRequest -Uri $url -UseBasicParsing
         $keyPattern = "T-[\w\d]{8}[\w\d]{8}-[\w\d]{5}-[\w\d]{5}-[\w\d]{5}-[\w\d]{5}"
-        
+
         if ($pageContent.Content -match $keyPattern) {
             $newKey = $Matches[0]
             Write-Output "Latest MakeMKV key found: $newKey"
-
             if (Test-Path $settingsFilePath) {
                 $settingsContent = Get-Content -Path $settingsFilePath
                 if ($settingsContent -match "app_Key =") {
@@ -62,6 +89,7 @@ Update-MakeMKVKey
 # Main loop: monitor for disc and rip automatically
 $lastKeyUpdate = Get-Date
 $lastDiscState = $false
+
 while ($true) {
     $discInserted = Test-DiscInDrive
 
