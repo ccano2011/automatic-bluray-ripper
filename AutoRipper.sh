@@ -27,9 +27,6 @@ log() {
     echo "$formatted_message" >> "$logFile"
 }
 
-# Path to MakeMKV CLI
-makeMKVPath="/usr/bin/makemkvcon"
-
 # Blu-ray drive (replace 'sr0' with the appropriate drive identifier for your system)
 drive="/dev/sr0"
 
@@ -37,28 +34,222 @@ drive="/dev/sr0"
 outputDirectory="$HOME/Videos/Rips"
 
 # SMB share details
-smbShare="//canohomeserver.local/media/Movies"
 mountPoint="/mnt/smbshare"
 
+# Initialize skip_encode & useSmbShare flag to false
+skip_encode=false
+useSmbShare=false
+
+#HandBrakeCLI preset
+uhdPresetName="Super HQ 2160p60 4K HEVC Surround"
+hdPresetName="Super HQ 1080p30 Surround"
+sdPresetName="Super HQ 720p30 Surround"
+
+# Parse command-line arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --smb-share)
+      useSmbShare=true
+      shift
+      ;;
+    --no-encode)
+      skip_encode=true
+      shift
+      ;;
+    --preset-file=*)
+      presetFile="${1#*=}"  # Extract value after equals sign
+      shift
+      ;;
+    --preset-file)  # Also support space-separated format
+      if [ -n "$2" ] && [ ${2:0:1} != "-" ]; then
+        presetFile="$2"
+        shift 2
+      else
+        log "Error: --preset-file requires a path argument" "ERROR"
+        exit 1
+      fi
+      ;;
+    --preset=*)
+      userPresetName="${1#*=}"  # Extract value after equals sign
+      shift
+      ;;
+    --preset)  # Also support space-separated format
+      if [ -n "$2" ] && [ ${2:0:1} != "-" ]; then
+        userPresetName="$2"
+        shift 2
+      else
+        log "Error: --preset requires a name argument" "ERROR"
+        exit 1
+      fi
+      ;;
+    *)
+      # Unknown option
+      shift
+      ;;
+  esac
+done
+
+if [ "$useSmbShare" = true ]; then
+  log "SMB sharing is enabled" "PROCESS"
+    # smbcredentials
+    smbConfigFile="$HOME/.smbcredentials"
+    if [ ! -f "$smbConfigFile" ]; then
+        apt install -y cifs-utils
+        echo "Creating SMB credentials file..."
+        read -p "Enter SMB share path [i.e. //homeserver.local/media/Movies]: " userShare
+        echo "smbShare=${userShare:-$smbShare}" >> "$smbConfigFile"
+        read -p "Enter SMB Username: " smbUsername
+        echo "username=$smbUsername" >> "$smbConfigFile"
+        read -s -p "Enter SMB Password: " smbPassword
+        echo "password=$smbPassword" >> "$smbConfigFile"
+        read -p "Enter local mount point for your Network/SMB share [Press 'Enter' for $mountPoint]: " userMount
+        echo "mountPoint=${userMount:-$mountPoint}" >> "$smbConfigFile"
+        chmod 600 "$smbConfigFile"
+        echo -e "\nCredentials stored securely."
+    fi
+fi
+
+# Configuration file
+configFile="$HOME/.autoripperconfig"
+
+# Check if config file exists
+if [ ! -f "$configFile" ]; then
+  echo "Setting up configuration..."
+  
+  # Get drive input
+  if [ -f "/proc/sys/dev/cdrom/info" ]; then
+  driveName=$(grep "drive name:" /proc/sys/dev/cdrom/info | awk '{print $3}')
+    if [ -n "$driveName" ]; then
+        drive="/dev/$driveName"
+        echo "Detected optical drive: $drive"
+    fi
+  else
+    echo "Could not determine optical drive path! Ensure there is one connected to your system and input it!"
+  fi
+  read -p "Enter optical drive path [Press 'Enter' for '$drive']: " userDrive
+  drive=${userDrive:-$drive}
+  
+  # Get output directory
+  read -p "Enter ripping output directory [Press 'Enter' for '$outputDirectory']: " userOutput
+  outputDirectory=${userOutput:-$outputDirectory}
+  
+  # Save to config file
+  echo "drive=$drive" > "$configFile"
+  echo "outputDirectory=$outputDirectory" >> "$configFile"
+
+  chmod 600 "$configFile"
+  echo "Configuration saved."
+else
+  # Load from config file
+  source "$configFile"
+  echo "Drive: $drive"
+  echo "Output Directory: $outputDirectory"
+fi
+
 # Make sure the output directory exists
-mkdir -p "$outputDirectory"
+mkdir -p "$outputDirectory/raw"
+mkdir -p "$outputDirectory/encode"
 
 # Logging
 logFile="$outputDirectory/ripper_log.txt"
 touch "$logFile"
 
-# smbcredentials
-smbConfigFile="$HOME/.smbcredentials"
-if [ ! -f "$smbConfigFile" ]; then
-    echo "Creating SMB credentials file..."
-    read -p "Enter SMB Username: " smbUsername
-    echo "username=$smbUsername" >> "$smbConfigFile"
-    read -s -p "Enter SMB Password: " smbPassword
-    echo "password=$smbPassword" >> "$smbConfigFile"
-    chmod 600 "$smbConfigFile"
-    echo -e "\nCredentials stored securely."
+if [ "$skip_encode" = true ]; then
+  log "Skipping HandBrake installation check & encoding as requested by -no-encode flag" "WARNING"
+  else
+    if ! command -v HandBrakeCLI &> /dev/null || ! HandBrakeCLI --version &> /dev/null; then
+        echo "Building HandBrake in...." && pwd
+        apt install -y  autoconf \
+                    automake \
+                    build-essential \
+                    cmake \
+                    git \
+                    libass-dev \
+                    libbz2-dev \
+                    libdrm-dev \
+                    libfontconfig-dev \
+                    libfreetype6-dev \
+                    libfribidi-dev \
+                    libharfbuzz-dev \
+                    libjansson-dev \
+                    liblzma-dev \
+                    libmp3lame-dev \
+                    libnuma-dev \
+                    libogg-dev \
+                    libopus-dev \
+                    libsamplerate0-dev \
+                    libspeex-dev \
+                    libtheora-dev \
+                    libtool \
+                    libtool-bin \
+                    libturbojpeg0-dev \
+                    libva-dev \
+                    libvorbis-dev \
+                    libx264-dev \
+                    libxml2-dev \
+                    libvpx-dev \
+                    m4 \
+                    make \
+                    meson \
+                    nasm \
+                    ninja-build \
+                    patch \
+                    pkg-config \
+                    python3 \
+                    tar \
+                    zlib1g-dev
+        cpuCount=$(nproc --all)
+        git clone https://github.com/HandBrake/HandBrake.git
+        cd HandBrake && rm -rf build
+        ./configure --launch-jobs="${cpuCount}" --launch --enable-qsv --enable-vce --enable-gtk --enable-x265
+        sudo make --directory=build install
+    fi
 fi
+if ! command -v makemkvcon &> /dev/null; then
+    log "makemkvcon not found in PATH and MakeMKV directory doesn't exist, attempting to build from source..." "WARNING"
+    apt install -y  build-essential \
+                    pkg-config \
+                    ffmpeg \
+                    libc6-dev \
+                    libssl-dev \
+                    libexpat1-dev \
+                    libavcodec-dev \
+                    libgl1-mesa-dev \
+                    qtbase5-dev \
+                    zlib1g-dev
+                    
+    LatestMakeMKVVersion=$(curl -s https://www.makemkv.com/download/ | grep -o '[0-9.]*.txt' | sed 's/.txt//')
+    MakeMKVBuildFilesDirectory="MakeMKV/"
+    cpuCount=$(nproc --all)
+    mkdir -p "MakeMKV"
+    cd "MakeMKV"
+    curl -# -o makemkv-sha-"${LatestMakeMKVVersion}".txt  \
+        https://www.makemkv.com/download/makemkv-sha-"${LatestMakeMKVVersion}".txt
+    curl -# -o makemkv-bin-"${LatestMakeMKVVersion}".tar.gz \
+        https://www.makemkv.com/download/makemkv-bin-"${LatestMakeMKVVersion}".tar.gz
+    curl -# -o makemkv-oss-"${LatestMakeMKVVersion}".tar.gz \
+        https://www.makemkv.com/download/makemkv-oss-"${LatestMakeMKVVersion}".tar.gz
+    grep "makemkv-bin-${LatestMakeMKVVersion}.tar.gz" "makemkv-sha-${LatestMakeMKVVersion}.txt" | sha256sum -c
+    grep "makemkv-bin-${LatestMakeMKVVersion}.tar.gz" "makemkv-sha-${LatestMakeMKVVersion}.txt" | sha256sum -c
+    tar xzf makemkv-bin-"${LatestMakeMKVVersion}".tar.gz
+    tar xzf makemkv-oss-"${LatestMakeMKVVersion}".tar.gz
 
+    cd makemkv-oss-"${LatestMakeMKVVersion}"
+    mkdir -p ./tmp
+    ./configure >> /dev/null  2>&1
+    sudo make -s -j"${cpuCount}"
+    sudo make install
+
+    cd ../makemkv-bin-"${LatestMakeMKVVersion}"
+    mkdir -p ./tmp
+    echo "yes" >> ./tmp/eula_accepted
+    sudo make -s -j"${cpuCount}"
+    sudo make install
+
+    makeMKVPath="/usr/bin/makemkvcon"
+  else
+    makeMKVPath="/usr/bin/makemkvcon"
+fi
 
 # Path to MakeMKV settings file
 settingsFilePath="$HOME/.MakeMKV/settings.conf"
@@ -80,7 +271,7 @@ rip_bluray() {
     
     # Create a unique directory for this rip
     local timestamp=$(date +%Y%m%d_%H%M%S)
-    local ripDir="$outputDirectory/rip_$timestamp"
+    local ripDir="$outputDirectory/raw/rip_$timestamp"
     mkdir -p "$ripDir"
     log "Created temporary directory for ripping: $ripDir" "INFO"
     
@@ -180,19 +371,51 @@ update_makemkv_key() {
         else
             echo "app_Key = \"$newKey\"" > "$settingsFilePath"
         fi
-        echo "MakeMKV key updated to: $newKey"
+        log "MakeMKV key updated to: $newKey" "SUCCESS"
         rm -rf $outputDirectory/makemkvpage.html
     else
-        echo "No valid key found on the MakeMKV forum page."
+        log "No valid key found on the MakeMKV forum page." "WARNING"
         rm -rf $outputDirectory/makemkvpage.html
         return 1
     fi
 }
 
+detect_video_resolution() {
+    local videoFile="$1"
+    local resolution=""
+    
+    # Use ffprobe to get the resolution information
+    if command -v ffprobe &> /dev/null; then
+        resolution=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$videoFile")
+        log "Detected video resolution: $resolution" "INFO"
+        
+        # Parse the width from the resolution (format is "1920x1080")
+        local width=$(echo "$resolution" | cut -d 'x' -f1)
+        
+        # Determine resolution category
+        if [ -n "$width" ]; then
+            if [ "$width" -ge 3840 ]; then
+                echo "uhd"
+            elif [ "$width" -ge 1920 ]; then
+                echo "hd"
+            else
+                echo "sd"
+            fi
+        else
+            log "Could not detect width from resolution" "WARNING"
+            echo "unknown"
+        fi
+    else
+        log "ffprobe not found, cannot detect resolution" "WARNING"
+        echo "unknown"
+    fi
+}
 
-# Function to evaluate and clean up ripped files
+# Function to evaluate, clean up, and encode ripped files
 evaluate_and_cleanup() {
     local ripDir="$1"
+    local presetPath="$2"      # Optional path to HandBrake preset file
+    local presetName="$3"      # Optional preset name to use
     
     # Validate input parameters
     if [ ! -d "$ripDir" ]; then
@@ -231,33 +454,110 @@ evaluate_and_cleanup() {
     
     log "Extracted title from filename: \"$discTitle\"" "INFO"
     
-    # Create new filename with disc title - REMOVE the "_t##" suffix
-    local newFileName="$outputDirectory/${discTitle}.mkv"
-    log "Creating final file: $newFileName" "PROCESS"
+    # Define file paths with proper organization
+    local tempFile="$outputDirectory/raw/${discTitle}_temp.mkv"
+    local finalRawFile="$outputDirectory/raw/${discTitle}.mkv"
+    local finalEncodedFile="$outputDirectory/encode/${discTitle}.mkv"
+    local outputFile=""
+    
+    log "Creating temporary file: $tempFile" "PROCESS"
     log "Copying file (this may take a while for large files)..." "INFO"
     
-    cp "$largestFile" "$newFileName"
+    cp "$largestFile" "$tempFile"
     local cpStatus=$?
     
-    if [ $cpStatus -eq 0 ]; then
-        log "Successfully created final file: $newFileName" "SUCCESS"
-        
-        # Show file details
-        local finalSize=$(du -h "$newFileName" | cut -f1)
-        log "Final file size: $finalSize" "INFO"
-        
-        # Clean up temporary rip directory after copying the file
-        log "Cleaning up temporary files..." "INFO"
-        rm -rf "$ripDir"
-        log "Temporary directory removed" "INFO"
-        
-        echo "$newFileName"
-    else
-        log "Failed to create final file (status: $cpStatus)" "ERROR"
+    if [ $cpStatus -ne 0 ]; then
+        log "Failed to create temporary file (status: $cpStatus)" "ERROR"
         return 1
     fi
-}
 
+    # Process with HandBrakeCLI if not skipping encoding and preset path exists
+    if [ "$skip_encode" = false ] ; then
+        if [ -f "$presetPath" ]; then
+            log "Preset File passed in: $presetName" "INFO"
+            HandBrakeCLI --preset-import-file "$presetPath" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                log "HandBrake: $line" "INFO"
+            done
+        elif [ -n "$presetName" ]; then
+            log "Preset explicitly in: $presetName" "INFO"
+            HandBrakeCLI --preset "$presetName" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                log "HandBrake: $line" "INFO"
+            done
+            log "Using user-specified preset: $presetName" "INFO"
+        else
+            # Auto-detect resolution and select appropriate preset
+            local resolution_type=$(detect_video_resolution "$tempFile")
+            case "$resolution_type" in
+                "uhd")
+                    selected_preset="$uhdPresetName"
+                    log "UHD content detected (2160p+), using preset: $selected_preset" "INFO"
+                    log "Running HandBrakeCLI encoder..." "PROCESS"
+                    HandBrakeCLI --preset "$selected_preset" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                        log "HandBrake: $line" "INFO"
+                    done
+                    ;;
+                "hd")
+                    selected_preset="$hdPresetName"
+                    log "HD content detected (1080p), using preset: $selected_preset" "INFO"
+                    log "Running HandBrakeCLI encoder..." "PROCESS"
+                    HandBrakeCLI --preset "$selected_preset" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                        log "HandBrake: $line" "INFO"
+                    done
+                    ;;
+                "sd")
+                    selected_preset="$sdPresetName"
+                    log "SD content detected (720p), using preset: $selected_preset" "INFO"
+                    log "Running HandBrakeCLI encoder..." "PROCESS"
+                    HandBrakeCLI --preset "$selected_preset" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                        log "HandBrake: $line" "INFO"
+                    done
+                    ;;
+                *)
+                    # Fallback to HD preset
+                    selected_preset="$hdPresetName"
+                    log "Could not determine resolution, using default HD preset" "WARNING"
+                    log "Running HandBrakeCLI encoder..." "PROCESS"
+                    HandBrakeCLI --preset "$selected_preset" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                        log "HandBrake: $line" "INFO"
+                    done
+                    ;;
+            esac
+        fi
+
+        # Check if encoding was successful
+        if [ -f "$finalEncodedFile" ]; then
+            log "Successfully encoded final file: $finalEncodedFile" "SUCCESS"
+            # Move the temp file to the raw directory for archiving
+            mv "$tempFile" "$finalRawFile"
+            log "Original file saved as: $finalRawFile" "INFO"
+            outputFile="$finalEncodedFile"
+        else
+            log "Encoding failed, using raw file as final" "WARNING"
+            mv "$tempFile" "$finalRawFile"
+            outputFile="$finalRawFile"
+        fi
+    else
+        # No HandBrake encoding needed, just use the temp file as final raw
+        if [ "$skip_encode" = true ]; then
+            log "Skipping encoding as requested by --no-encode flag" "INFO"
+        else
+            log "No encoding configuration provided, skipping encoding" "INFO"
+        fi
+        mv "$tempFile" "$finalRawFile"
+        outputFile="$finalRawFile"
+    fi
+    
+    # Show file details
+    local finalSize=$(du -h "$outputFile" | cut -f1)
+    log "Final file size: $finalSize" "INFO"
+    
+    # Clean up temporary rip directory
+    log "Cleaning up temporary files..." "INFO"
+    rm -rf "$ripDir"
+    log "Temporary directory removed" "INFO"
+    
+    echo "$outputFile"
+}
 
 # Function to mount SMB share
 mount_smb_share() {
@@ -269,17 +569,24 @@ mount_smb_share() {
     if ! mountpoint -q "$mountPoint"; then
         log "Mounting SMB share..."
         
-        # Try to mount using direct user mount (requires proper fstab setup)
-        mount "$mountPoint" 2>/dev/null
+        # Source the SMB config file to get share path
+        if [ -f "$smbConfigFile" ]; then
+            source "$smbConfigFile"
+        else
+            log "SMB configuration file not found" "ERROR"
+            return 1
+        fi
+        
+        mount -t cifs "$smbShare" "$mountPoint" -o credentials="$smbConfigFile",iocharset=utf8,file_mode=0777,dir_mode=0777
         
         if [ $? -ne 0 ]; then
-            log "Direct mount failed. Make sure your fstab is properly configured with the 'user' option."
+            log "Mount failed. Check your SMB credentials and share path." "ERROR"
             return 1
         else
-            log "SMB share mounted successfully"
+            log "SMB share mounted successfully" "SUCCESS"
         fi
     else
-        log "SMB share already mounted"
+        log "SMB share already mounted" "INFO"
     fi
 }
 
@@ -365,7 +672,7 @@ process_disc() {
     
     # Evaluate and clean up - now gets title from the filename
     local finalFile=""
-    finalFile=$(evaluate_and_cleanup "$ripDir")
+    finalFile=$(evaluate_and_cleanup "$ripDir" "$presetFile" "$userPresetName")
     local cleanupStatus=$?
     
     if [ $cleanupStatus -ne 0 ]; then
@@ -378,14 +685,16 @@ process_disc() {
         log "Final file does not exist: $finalFile" "ERROR"
         return 1
     fi
-    
-    # Move to SMB share
-    log "Preparing to transfer file to network storage..." "PROCESS"
-    if ! move_file_to_smb_share "$finalFile"; then
-        log "Failed to move file to SMB share" "ERROR"
-        return 1
+
+    if [ "$useSmbShare" = true ]; then
+        # Move to SMB share
+        log "Preparing to transfer file to network storage..." "PROCESS"
+        if ! move_file_to_smb_share "$finalFile"; then
+            log "Failed to move file to SMB share" "ERROR"
+            return 1
+        fi
     fi
-    
+
     # Eject the disc
     log "Ejecting disc..." "PROCESS"
     eject_disc
@@ -411,8 +720,10 @@ log "Starting Automatic Blu-ray Ripper"
 # Update MakeMKV key on startup
 update_makemkv_key
 
-# Mount the SMB share
-mount_smb_share
+if [ "$useSmbShare" = true ]; then
+    # Mount the SMB share
+    mount_smb_share
+fi
 
 # Main loop: monitor for disc and rip automatically
 lastKeyUpdate=$(date +%s)
@@ -460,7 +771,6 @@ while true; do
     
     # Update the disc state
     lastDiscState="$currentDiscState"
-    
     
     # Delay to prevent constant polling
     sleep 30

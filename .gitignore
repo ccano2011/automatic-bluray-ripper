@@ -1,2 +1,8 @@
 AutoRipperTEST.sh
 titles.txt
+.smbcredentials
+.autoripperconfig
+HandBrake
+MakeMKV
+ARM-encode-cron.sh
+*.json
