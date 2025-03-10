@@ -7,24 +7,24 @@ This is a WIP with more substantial documation inbound. Stay tuned...
 This was developed and tested for Debian 12. This will require a libre-drive compatible optical drive already flashed and tested.
 
 ### Basic usage
-./AutoRipper.sh
+`./AutoRipper.sh`
 - This will install all needed dependencies and build MakeMKV, HandBrake, and begin ripping + encoding the disk already inserted
 
 ### Advanced usage
 With SMB sharing
-./AutoRipper.sh --smb-share
+`./AutoRipper.sh --smb-share`
 
 Skip encoding
-./AutoRipper.sh --no-encode
+`./AutoRipper.sh --no-encode`
 
 Use a specific preset file
-./AutoRipper.sh --preset-file=UHD-BluRay-Encode.json
+`./AutoRipper.sh --preset-file=UHD-BluRay-Encode.json`
 
 Use a specific preset name
-./AutoRipper.sh --preset="Super HQ 2160p60 4K HEVC Surround"
+`./AutoRipper.sh --preset="Super HQ 2160p60 4K HEVC Surround"`
 
 Combine options
-./AutoRipper.sh --smb-share --preset-file=UHD-BluRay-Encode.json
+`./AutoRipper.sh --smb-share --preset-file=UHD-BluRay-Encode.json`
 
 Re-initialize SMB settings
-./AutoRipper.sh --new-smb
+`./AutoRipper.sh --new-smb`
