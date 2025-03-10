@@ -52,6 +52,10 @@ while [[ $# -gt 0 ]]; do
       useSmbShare=true
       shift
       ;;
+    --new-smb)
+      newSmbShare=true
+      shift
+      ;;
     --no-encode)
       skip_encode=true
       shift
@@ -89,6 +93,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [ "$newSmbShare" = true ]; then
+    rm -rf "$HOME/.smbcredentials"
+    useSmbShare=true
+fi
+
 if [ "$useSmbShare" = true ]; then
   log "SMB sharing is enabled" "PROCESS"
     # smbcredentials
@@ -104,6 +113,7 @@ if [ "$useSmbShare" = true ]; then
         echo "password=$smbPassword" >> "$smbConfigFile"
         read -p "Enter local mount point for your Network/SMB share [Press 'Enter' for $mountPoint]: " userMount
         echo "mountPoint=${userMount:-$mountPoint}" >> "$smbConfigFile"
+        mkdir -p $mountPoint
         chmod 600 "$smbConfigFile"
         echo -e "\nCredentials stored securely."
     fi
