@@ -555,7 +555,7 @@ evaluate_and_cleanup() {
                 "sd")
                     if [ -f "$sdAutoRipperPresetFile" ]; then
                     log "SD content detected (480p), upscaling to 720p using preset-import-file: $sdAutoRipperPresetFile" "INFO"
-                        preset="--preset-import-file \"$sdAutoRipperPresetFile\""
+                        preset=(--preset-import-file "$sdAutoRipperPresetFile")
                     else
                     log "SD content detected (480p), upscaling to 720p using preset: $selected_preset" "INFO"
                         preset=(--preset "$selected_preset")
