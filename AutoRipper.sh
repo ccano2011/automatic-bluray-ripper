@@ -219,13 +219,14 @@ if [ "$skip_encode" = true ]; then
                     gstreamer1.0-plugins-good \
                     libgstreamer-plugins-base1.0-dev \
                     libgtk-4-dev \
-                    zlib1g-dev
+                    zlib1g-dev || { log "Failed to install dependencies" "ERROR"; exit 1; }
         if ! cargo --version &> /dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y || { log "Failed to install Rust" "ERROR"; exit 1; }
             source "$HOME/.cargo/env"
+            cargo install cargo-c || { log "Failed to install cargo-c" "ERROR"; exit 1; }
         else 
             log "Cargo installed; checking cargo-c" "PROCESS"
-            cargo install cargo-c
+            cargo install cargo-c || { log "Failed to install cargo-c" "ERROR"; exit 1; }
         fi
         cpuCount=$(nproc --all)
         git clone https://github.com/HandBrake/HandBrake.git
@@ -234,7 +235,7 @@ if [ "$skip_encode" = true ]; then
         # ./configure --launch-jobs="${cpuCount}" --launch --enable-qsv --enable-vce --enable-gtk --enable-x265
         # Default + Dolby Vision Support; Requires cargo-c to be installed. Try `cargo install cargo-c`
         ./configure --launch-jobs="${cpuCount}" --launch --enable-qsv --enable-vce --enable-gtk --enable-x265 --enable-libdovi
-        sudo make --directory=build install
+        sudo make --directory=build install || { log "HandBrake failed to compile" "ERROR"; exit 1; }
     fi
 fi
 if ! command -v makemkvcon &> /dev/null; then
@@ -251,7 +252,7 @@ if ! command -v makemkvcon &> /dev/null; then
                     qtbase5-dev \
                     zlib1g-dev
                     
-    LatestMakeMKVVersion=$(curl -s https://www.makemkv.com/download/ | grep -o '[0-9.]*.txt' | sed 's/.txt//')
+    LatestMakeMKVVersion=$(curl -s https://www.makemkv.com/download/ | grep -o '[0-9.]*.txt' | sed 's/.txt//') || { log "Failed to download MakeMKV source!" "ERROR"; exit 1; }
     MakeMKVBuildFilesDirectory="MakeMKV/"
     cpuCount=$(nproc --all)
     mkdir -p "MakeMKV"
@@ -270,14 +271,14 @@ if ! command -v makemkvcon &> /dev/null; then
     cd makemkv-oss-"${LatestMakeMKVVersion}"
     mkdir -p ./tmp
     ./configure >> /dev/null  2>&1
-    sudo make -s -j"${cpuCount}"
-    sudo make install
+    sudo make -s -j"${cpuCount}" || { log "Failed to build MakeMKV-oss!" "ERROR"; exit 1; }
+    sudo make install || { log "Failed to install MakeMKV-oss!" "ERROR"; exit 1; }
 
     cd ../makemkv-bin-"${LatestMakeMKVVersion}"
     mkdir -p ./tmp
     echo "yes" >> ./tmp/eula_accepted
-    sudo make -s -j"${cpuCount}"
-    sudo make install
+    sudo make -s -j"${cpuCount}" || { log "Failed to build MakeMKV!" "ERROR"; exit 1; }
+    sudo make install || { log "Failed to install MakeMKV!" "ERROR"; exit 1; }
 
     makeMKVPath="/usr/bin/makemkvcon"
   else
