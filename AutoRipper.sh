@@ -178,6 +178,7 @@ if [ "$skip_encode" = true ]; then
         sudo apt install -y  autoconf \
                     automake \
                     build-essential \
+                    curl \
                     cmake \
                     git \
                     libass-dev \
