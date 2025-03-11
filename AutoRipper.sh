@@ -45,10 +45,12 @@ uhdPresetName="Super HQ 2160p60 4K HEVC Surround"
 hdPresetName="Super HQ 1080p30 Surround"
 sdPresetName="Super HQ 720p30 Surround"
 
-#AutoRipper HandBrakeCLI presets
-uhdAutoRipperPresetFile="./Presets/UHD-BluRay-Encode.json"
-hdAutoRipperPresetFile="./Presets/HD-BluRay-Encode.json"
-sdAutoRipperPresetFile="./Presets/SD-DVD-Encode.json"
+# AutoRipper.sh directory exported for preset files
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Define preset files relative to script location
+uhdAutoRipperPresetFile="${SCRIPT_DIR}/Presets/UHD-BluRay-Encode.json"
+hdAutoRipperPresetFile="${SCRIPT_DIR}/Presets/HD-BluRay-Encode.json"
+sdAutoRipperPresetFile="${SCRIPT_DIR}/Presets/SD-DVD-Encode.json"
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -533,8 +535,8 @@ evaluate_and_cleanup() {
                     log "UHD content detected (2160p+), using preset-import-file: $uhdAutoRipperPresetFile" "INFO"
                         preset=(--preset-import-file "$uhdAutoRipperPresetFile")
                     else
-                    log "UHD content detected (2160p+), using preset: $selected_preset" "INFO"
-                        preset=(--preset "$selected_preset")
+                    log "UHD content detected (2160p+), using preset: $uhdPresetName" "INFO"
+                        preset=(--preset "$uhdPresetName")
                     fi
                     log "Running HandBrakeCLI encoder..." "PROCESS"
                     HandBrakeCLI "${preset[@]}" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
@@ -546,8 +548,8 @@ evaluate_and_cleanup() {
                     log "HD content detected (1080p), using preset-import-file: $hdAutoRipperPresetFile" "INFO"
                         preset=(--preset-import-file "$hdAutoRipperPresetFile")
                     else
-                    log "HD content detected (1080p), using preset: $selected_preset" "INFO"
-                        preset=(--preset "$selected_preset")
+                    log "HD content detected (1080p), using preset: $hdPresetName" "INFO"
+                        preset=(--preset "$hdPresetName")
                     fi
                     log "Running HandBrakeCLI encoder..." "PROCESS"
                     HandBrakeCLI "${preset[@]}" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
@@ -559,8 +561,8 @@ evaluate_and_cleanup() {
                     log "SD content detected (480p), upscaling to 720p using preset-import-file: $sdAutoRipperPresetFile" "INFO"
                         preset=(--preset-import-file "$sdAutoRipperPresetFile")
                     else
-                    log "SD content detected (480p), upscaling to 720p using preset: $selected_preset" "INFO"
-                        preset=(--preset "$selected_preset")
+                    log "SD content detected (480p), upscaling to 720p using preset: $sdPresetName" "INFO"
+                        preset=(--preset "$sdPresetName")
                     fi
                     log "Running HandBrakeCLI encoder..." "PROCESS"
                     HandBrakeCLI "${preset[@]}" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
@@ -569,10 +571,9 @@ evaluate_and_cleanup() {
                     ;;
                 *)
                     # Fallback to HD preset
-                    selected_preset="$hdPresetName"
                     log "Could not determine resolution, using default HD preset" "WARNING"
                     log "Running HandBrakeCLI encoder..." "PROCESS"
-                    HandBrakeCLI --preset "$selected_preset" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                    HandBrakeCLI --preset "$hdPresetName" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                         log "HandBrake: $line" "INFO"
                     done
                     ;;
