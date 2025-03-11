@@ -174,8 +174,8 @@ if [ "$skip_encode" = true ]; then
   else
     if ! command -v HandBrakeCLI &> /dev/null || ! HandBrakeCLI --version &> /dev/null; then
         echo "Building HandBrake in...." && pwd
-        apt update -y
-        apt install -y  autoconf \
+        sudo apt update -y
+        sudo apt install -y  autoconf \
                     automake \
                     build-essential \
                     cmake \
@@ -243,8 +243,8 @@ if [ "$skip_encode" = true ]; then
 fi
 if ! command -v makemkvcon &> /dev/null; then
     log "makemkvcon not found in PATH and MakeMKV directory doesn't exist, attempting to build from source..." "WARNING"
-    apt update -y
-    apt install -y  build-essential \
+    sudo apt update -y
+    sudo apt install -y  build-essential \
                     pkg-config \
                     ffmpeg \
                     libc6-dev \
