@@ -108,7 +108,7 @@ if [ "$useSmbShare" = true ]; then
     # smbcredentials
     smbConfigFile="$HOME/.smbcredentials"
     if [ ! -f "$smbConfigFile" ]; then
-        apt install -y cifs-utils
+        sudo apt install -y cifs-utils
         echo "Creating SMB credentials file..."
         read -p "Enter SMB share path [i.e. //homeserver.local/media/Movies]: " userShare
         echo "smbShare=${userShare:-$smbShare}" >> "$smbConfigFile"
@@ -246,6 +246,7 @@ if ! command -v makemkvcon &> /dev/null; then
     log "makemkvcon not found in PATH and MakeMKV directory doesn't exist, attempting to build from source..." "WARNING"
     sudo apt update -y
     sudo apt install -y  build-essential \
+                    curl \
                     pkg-config \
                     ffmpeg \
                     libc6-dev \
