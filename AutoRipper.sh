@@ -45,6 +45,8 @@ uhdPresetName="Super HQ 2160p60 4K HEVC Surround"
 hdPresetName="Super HQ 1080p30 Surround"
 sdPresetName="Super HQ 720p30 Surround"
 
+
+
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -169,6 +171,7 @@ if [ "$skip_encode" = true ]; then
   else
     if ! command -v HandBrakeCLI &> /dev/null || ! HandBrakeCLI --version &> /dev/null; then
         echo "Building HandBrake in...." && pwd
+        apt update -y
         apt install -y  autoconf \
                     automake \
                     build-essential \
@@ -193,6 +196,7 @@ if [ "$skip_encode" = true ]; then
                     libtool \
                     libtool-bin \
                     libturbojpeg0-dev \
+                    libssl-dev \
                     libva-dev \
                     libvorbis-dev \
                     libx264-dev \
@@ -203,20 +207,39 @@ if [ "$skip_encode" = true ]; then
                     meson \
                     nasm \
                     ninja-build \
+                    openssl \
                     patch \
                     pkg-config \
                     python3 \
                     tar \
+                    appstream \
+                    desktop-file-utils \
+                    gettext \
+                    gstreamer1.0-libav \
+                    gstreamer1.0-plugins-good \
+                    libgstreamer-plugins-base1.0-dev \
+                    libgtk-4-dev \
                     zlib1g-dev
+        if ! cargo --version &> /dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            source "$HOME/.cargo/env"
+        else 
+            log "Cargo installed; checking cargo-c" "PROCESS"
+            cargo install cargo-c
+        fi
         cpuCount=$(nproc --all)
         git clone https://github.com/HandBrake/HandBrake.git
         cd HandBrake && rm -rf build
-        ./configure --launch-jobs="${cpuCount}" --launch --enable-qsv --enable-vce --enable-gtk --enable-x265
+        # Default HandBrake with GUI, Intel QSV & H.265 HVEC
+        # ./configure --launch-jobs="${cpuCount}" --launch --enable-qsv --enable-vce --enable-gtk --enable-x265
+        # Default + Dolby Vision Support; Requires cargo-c to be installed. Try `cargo install cargo-c`
+        ./configure --launch-jobs="${cpuCount}" --launch --enable-qsv --enable-vce --enable-gtk --enable-x265 --enable-libdovi
         sudo make --directory=build install
     fi
 fi
 if ! command -v makemkvcon &> /dev/null; then
     log "makemkvcon not found in PATH and MakeMKV directory doesn't exist, attempting to build from source..." "WARNING"
+    apt update -y
     apt install -y  build-essential \
                     pkg-config \
                     ffmpeg \
@@ -638,13 +661,13 @@ move_file_to_smb_share() {
     
     if [ $? -eq 0 ]; then
         log "Successfully copied \"$filename\" to SMB share" "SUCCESS"
-        log "Removing local copy..." "INFO"
-        rm "$file"
-        if [ $? -eq 0 ]; then
-            log "Local copy removed" "INFO"
-        else
-            log "Warning: Failed to remove local copy" "WARNING"
-        fi
+        # log "Removing local copy..." "INFO"
+        # rm "$file"
+        # if [ $? -eq 0 ]; then
+        #     log "Local copy removed" "INFO"
+        # else
+        #     log "Warning: Failed to remove local copy" "WARNING"
+        # fi
     else
         log "Failed to copy file to SMB share" "ERROR"
         return 1
