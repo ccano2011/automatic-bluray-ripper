@@ -1,7 +1,7 @@
 # automatic-bluray-ripper
 A bash script that automates the process of ripping and encoding movies on Physical Media (DVDs,BDs, & UHD-BDs) which installs all dependencies to build MakeMKV & HandBrakeCLI from source, with native support for `smb` shares. 
 
-This is a WIP with more substantial documation inbound. Stay tuned...
+**This is a WIP with more substantial documation inbound. Stay tuned...**
 
 ### Requirements
 This was developed and tested for Debian 12. This will require a libre-drive compatible optical drive already flashed and tested.
@@ -10,7 +10,7 @@ This was developed and tested for Debian 12. This will require a libre-drive com
 `./AutoRipper.sh`
 - This will install all needed dependencies and build MakeMKV, HandBrake, and begin ripping + encoding the disk already inserted
 
-### Advanced usage
+### Advanced usage (WIP)
 With SMB sharing
 `./AutoRipper.sh --smb-share`
 
