@@ -47,10 +47,14 @@ sdPresetName="Super HQ 720p30 Surround"
 
 # AutoRipper.sh directory exported for preset files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Define preset files relative to script location
-uhdAutoRipperPresetFile="${SCRIPT_DIR}/Presets/UHD-BluRay-Encode.json"
-hdAutoRipperPresetFile="${SCRIPT_DIR}/Presets/HD-BluRay-Encode.json"
-sdAutoRipperPresetFile="${SCRIPT_DIR}/Presets/SD-DVD-Encode.json"
+# Define preset names of the preset files
+uhdAutoRipperPresetFile="UHD-BluRay-Encode.json"
+hdAutoRipperPresetFile="HD-BluRay-Encode.json"
+sdAutoRipperPresetFile="SD-DVD-Encode.json"
+# Define preset file paths relative to script location
+uhdAutoRipperPresetFilePath="${SCRIPT_DIR}/Presets/${uhdAutoRipperPresetFile}"
+hdAutoRipperPresetFilePath="${SCRIPT_DIR}/Presets/${hdAutoRipperPresetFile}"
+sdAutoRipperPresetFilePath="${SCRIPT_DIR}/Presets/${sdAutoRipperPresetFile}"
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -531,11 +535,11 @@ evaluate_and_cleanup() {
             local resolution_type=$(detect_video_resolution "$tempFile")
             case "$resolution_type" in
                 "uhd")
-                    if [ -f "$uhdAutoRipperPresetFile" ]; then
-                    log "UHD content detected (2160p+), using preset-import-file: $uhdAutoRipperPresetFile" "INFO"
-                        preset=(--preset-import-file "$uhdAutoRipperPresetFile")
+                    if [ -f "$uhdAutoRipperPresetFilePath" ]; then
+                    log "UHD content detected (2160p+), using preset-import-file: $uhdAutoRipperPresetFilePath" "INFO"
+                        preset=(--preset-import-file "$uhdAutoRipperPresetFilePath" --preset "$uhdAutoRipperPresetFile")
                     else
-                    log "UHD content detected (2160p+), using preset: $uhdPresetName" "INFO"
+                    log "Preset file not used... UHD content detected (2160p+), defaulting to built-in preset: $uhdPresetName" "WARNING"
                         preset=(--preset "$uhdPresetName")
                     fi
                     log "Running HandBrakeCLI encoder..." "PROCESS"
@@ -544,11 +548,11 @@ evaluate_and_cleanup() {
                     done
                     ;;
                 "hd")
-                    if [ -f "$hdAutoRipperPresetFile" ]; then
-                    log "HD content detected (1080p), using preset-import-file: $hdAutoRipperPresetFile" "INFO"
-                        preset=(--preset-import-file "$hdAutoRipperPresetFile")
+                    if [ -f "$hdAutoRipperPresetFilePath" ]; then
+                    log "HD content detected (1080p), using preset-import-file: $hdAutoRipperPresetFilePath" "INFO"
+                        preset=(--preset-import-file "$hdAutoRipperPresetFilePath" --preset "$hdAutoRipperPresetFile")
                     else
-                    log "HD content detected (1080p), using preset: $hdPresetName" "INFO"
+                    log "Preset file not used... HD content detected (1080p), defaulting to built-in preset: $hdPresetName" "WARNING"
                         preset=(--preset "$hdPresetName")
                     fi
                     log "Running HandBrakeCLI encoder..." "PROCESS"
@@ -557,11 +561,11 @@ evaluate_and_cleanup() {
                     done
                     ;;
                 "sd")
-                    if [ -f "$sdAutoRipperPresetFile" ]; then
-                    log "SD content detected (480p), upscaling to 720p using preset-import-file: $sdAutoRipperPresetFile" "INFO"
-                        preset=(--preset-import-file "$sdAutoRipperPresetFile")
+                    if [ -f "$sdAutoRipperPresetFilePath" ]; then
+                    log "SD content detected (480p), upscaling to 720p using preset-import-file: $sdAutoRipperPresetFilePath" "INFO"
+                        preset=(--preset-import-file "$sdAutoRipperPresetFilePath" --preset "$sdAutoRipperPresetFile")
                     else
-                    log "SD content detected (480p), upscaling to 720p using preset: $sdPresetName" "INFO"
+                    log "Preset file not used... SD content detected (480p), upscaling to 720p using built-in preset: $sdPresetName" "WARNING"
                         preset=(--preset "$sdPresetName")
                     fi
                     log "Running HandBrakeCLI encoder..." "PROCESS"
@@ -571,7 +575,7 @@ evaluate_and_cleanup() {
                     ;;
                 *)
                     # Fallback to HD preset
-                    log "Could not determine resolution, using default HD preset" "WARNING"
+                    log "Could not determine resolution, using default HD preset: $hdPresetName" "WARNING"
                     log "Running HandBrakeCLI encoder..." "PROCESS"
                     HandBrakeCLI --preset "$hdPresetName" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                         log "HandBrake: $line" "INFO"
