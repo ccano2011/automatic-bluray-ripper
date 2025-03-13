@@ -3,15 +3,36 @@
         {
             "AlignAVStart": true,
             "AudioCopyMask": [
+                "copy:mp2",
+                "copy:mp3",
                 "copy:aac",
                 "copy:ac3",
                 "copy:dts",
                 "copy:dtshd",
-                "copy:truehd"
+                "copy:eac3",
+                "copy:alac",
+                "copy:flac",
+                "copy:truehd",
+                "copy:vorbis",
+                "copy:opus"
             ],
             "AudioEncoderFallback": "av_aac",
             "AudioLanguageList": [],
-            "AudioList": [],
+            "AudioList": [
+                {
+                    "AudioBitrate": 192,
+                    "AudioCompressionLevel": -1.0,
+                    "AudioDitherMethod": "auto",
+                    "AudioEncoder": "copy",
+                    "AudioMixdown": "5point1",
+                    "AudioNormalizeMixLevel": false,
+                    "AudioSamplerate": "auto",
+                    "AudioTrackDRCSlider": 0.0,
+                    "AudioTrackGainSlider": 0.0,
+                    "AudioTrackQuality": 3.0,
+                    "AudioTrackQualityEnable": false
+                }
+            ],
             "AudioSecondaryEncoderMode": true,
             "AudioTrackSelectionBehavior": "first",
             "ChapterMarkers": true,
@@ -75,7 +96,7 @@
             "PictureWidth": 1280,
             "PresetDescription": "Super high quality H.264 video (up to 720p30), Passthrough Audio",
             "PresetDisabled": false,
-            "PresetName": "SD-DVD-Encode",
+            "PresetName": "SD-DVD-Encode.json",
             "SubtitleAddCC": false,
             "SubtitleAddForeignAudioSearch": true,
             "SubtitleAddForeignAudioSubtitle": false,

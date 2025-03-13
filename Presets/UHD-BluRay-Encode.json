@@ -3,15 +3,36 @@
         {
             "AlignAVStart": false,
             "AudioCopyMask": [
+                "copy:mp2",
+                "copy:mp3",
                 "copy:aac",
                 "copy:ac3",
                 "copy:dts",
                 "copy:dtshd",
-                "copy:truehd"
+                "copy:eac3",
+                "copy:alac",
+                "copy:flac",
+                "copy:truehd",
+                "copy:vorbis",
+                "copy:opus"
             ],
             "AudioEncoderFallback": "av_aac",
             "AudioLanguageList": [],
-            "AudioList": [],
+            "AudioList": [
+                {
+                    "AudioBitrate": 192,
+                    "AudioCompressionLevel": -1.0,
+                    "AudioDitherMethod": "auto",
+                    "AudioEncoder": "copy",
+                    "AudioMixdown": "5point1",
+                    "AudioNormalizeMixLevel": false,
+                    "AudioSamplerate": "auto",
+                    "AudioTrackDRCSlider": 0.0,
+                    "AudioTrackGainSlider": 0.0,
+                    "AudioTrackQuality": 3.0,
+                    "AudioTrackQualityEnable": false
+                }
+            ],
             "AudioSecondaryEncoderMode": true,
             "AudioTrackSelectionBehavior": "first",
             "ChapterMarkers": true,
@@ -26,7 +47,7 @@
             "Optimize": false,
             "PictureAllowUpscaling": false,
             "PictureAutoCrop": true,
-            "PictureBottomCrop": 276,
+            "PictureBottomCrop": 42,
             "PictureChromaSmoothCustom": "",
             "PictureChromaSmoothPreset": "off",
             "PictureChromaSmoothTune": "none",
@@ -70,7 +91,7 @@
             "PictureSharpenFilter": "off",
             "PictureSharpenPreset": "",
             "PictureSharpenTune": "",
-            "PictureTopCrop": 276,
+            "PictureTopCrop": 42,
             "PictureUseMaximumSize": true,
             "PictureWidth": 3840,
             "PresetDescription": "Super high quality H.265 video (up to 2160p60), Passthrough Audio & HDR (+Dolby Vision; if supported)",

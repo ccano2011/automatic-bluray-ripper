@@ -24,7 +24,7 @@ log() {
     esac
     
     # Save to log file
-    echo "$formatted_message" >> "$logFile"
+    # echo "$formatted_message" >> "$logFile"
 }
 
 # Blu-ray drive (replace 'sr0' with the appropriate drive identifier for your system)
