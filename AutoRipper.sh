@@ -627,7 +627,7 @@ evaluate_and_cleanup() {
 mount_smb_share() {
     if [ ! -d "$mountPoint" ]; then
         log "Creating mount point directory: $mountPoint"
-        mkdir -p "$mountPoint"
+        sudo mkdir -p "$mountPoint"
     fi
 
     if ! mountpoint -q "$mountPoint"; then
