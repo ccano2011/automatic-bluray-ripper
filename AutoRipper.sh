@@ -124,7 +124,7 @@ if [ "$useSmbShare" = true ]; then
         echo "password=$smbPassword" >> "$smbConfigFile"
         read -p "Enter local mount point for your Network/SMB share [Press 'Enter' for $mountPoint]: " userMount
         echo "mountPoint=${userMount:-$mountPoint}" >> "$smbConfigFile"
-        sudo mkdir -p $mountPoint
+        mkdir -p $mountPoint
         chmod 600 "$smbConfigFile"
         echo -e "\nCredentials stored securely."
     fi
@@ -187,14 +187,6 @@ if [ "$skip_encode" = true ]; then
                     curl \
                     cmake \
                     git \
-                    ffmpeg \
-                    libc6-dev \
-                    libssl-dev \
-                    libexpat1-dev \
-                    libavcodec-dev \
-                    libgl1-mesa-dev \
-                    qtbase5-dev \
-                    zlib1g-dev \
                     libass-dev \
                     libbz2-dev \
                     libdrm-dev \
@@ -290,13 +282,13 @@ if ! command -v makemkvcon &> /dev/null; then
     cd makemkv-oss-"${LatestMakeMKVVersion}"
     mkdir -p ./tmp
     ./configure >> /dev/null  2>&1
-    sudo make -k -s -j"${cpuCount}" || { log "Failed to build MakeMKV-oss!" "ERROR"; exit 1; }
+    sudo make -s -j"${cpuCount}" || { log "Failed to build MakeMKV-oss!" "ERROR"; exit 1; }
     sudo make install || { log "Failed to install MakeMKV-oss!" "ERROR"; exit 1; }
 
     cd ../makemkv-bin-"${LatestMakeMKVVersion}"
     mkdir -p ./tmp
     echo "yes" >> ./tmp/eula_accepted
-    sudo make -k -s -j"${cpuCount}" || { log "Failed to build MakeMKV!" "ERROR"; exit 1; }
+    sudo make -s -j"${cpuCount}" || { log "Failed to build MakeMKV!" "ERROR"; exit 1; }
     sudo make install || { log "Failed to install MakeMKV!" "ERROR"; exit 1; }
 
     makeMKVPath="/usr/bin/makemkvcon"
