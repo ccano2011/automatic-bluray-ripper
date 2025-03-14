@@ -194,7 +194,7 @@ if [ "$skip_encode" = true ]; then
                     libavcodec-dev \
                     libgl1-mesa-dev \
                     qtbase5-dev \
-                    zlib1g-dev
+                    zlib1g-dev \
                     libass-dev \
                     libbz2-dev \
                     libdrm-dev \
