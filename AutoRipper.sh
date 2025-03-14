@@ -234,10 +234,11 @@ if [ "$skip_encode" = true ]; then
         if ! cargo --version &> /dev/null; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y || { log "Failed to install Rust" "ERROR"; exit 1; }
             source "$HOME/.cargo/env"
-            sudo cargo install cargo-c || { log "Failed to install cargo-c" "ERROR"; exit 1; }
+            . "$HOME/.cargo/env"
+            cargo install cargo-c || { log "Failed to install cargo-c" "ERROR"; exit 1; }
         else 
             log "Cargo installed; checking cargo-c" "PROCESS"
-            sudo cargo install cargo-c || { log "Failed to install cargo-c" "ERROR"; exit 1; }
+            cargo install cargo-c || { log "Failed to install cargo-c" "ERROR"; exit 1; }
         fi
         cpuCount=$(nproc --all)
         sudo rm -rf HandBrake
