@@ -253,8 +253,7 @@ if [ "$skip_encode" = true ]; then
         # ./configure --launch-jobs="${cpuCount}" --launch --enable-qsv --enable-vce --enable-gtk --enable-x265
         # Default + Dolby Vision Support; Requires cargo-c to be installed. Try `cargo install cargo-c`
         ./configure --launch-jobs="${cpuCount}" --launch --enable-qsv --enable-vce --enable-gtk --enable-x265 --enable-libdovi
-        cd build && sudo make -k
-        sudo make -k --directory=build install || { log "HandBrake failed to compile" "ERROR"; exit 1; }
+        sudo make --directory=build install || { log "HandBrake failed to compile" "ERROR"; exit 1; }
     fi
 fi
 if ! command -v makemkvcon &> /dev/null; then
