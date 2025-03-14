@@ -184,6 +184,7 @@ if [ "$skip_encode" = true ]; then
         sudo apt install -y  autoconf \
                     automake \
                     build-essential \
+                    ca-certificates \
                     curl \
                     cmake \
                     git \
@@ -233,14 +234,15 @@ if [ "$skip_encode" = true ]; then
         if ! cargo --version &> /dev/null; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y || { log "Failed to install Rust" "ERROR"; exit 1; }
             source "$HOME/.cargo/env"
-            cargo install cargo-c || { log "Failed to install cargo-c" "ERROR"; exit 1; }
+            sudo cargo install cargo-c || { log "Failed to install cargo-c" "ERROR"; exit 1; }
         else 
             log "Cargo installed; checking cargo-c" "PROCESS"
-            cargo install cargo-c || { log "Failed to install cargo-c" "ERROR"; exit 1; }
+            sudo cargo install cargo-c || { log "Failed to install cargo-c" "ERROR"; exit 1; }
         fi
         cpuCount=$(nproc --all)
+        sudo rm -rf HandBrake
         git clone https://github.com/HandBrake/HandBrake.git
-        cd HandBrake && sudo rm -rf build
+        cd HandBrake
         # Default HandBrake with GUI, Intel QSV & H.265 HVEC
         # ./configure --launch-jobs="${cpuCount}" --launch --enable-qsv --enable-vce --enable-gtk --enable-x265
         # Default + Dolby Vision Support; Requires cargo-c to be installed. Try `cargo install cargo-c`
@@ -253,6 +255,7 @@ if ! command -v makemkvcon &> /dev/null; then
     sudo apt update -y
     sudo apt install -y  build-essential \
                     curl \
+                    ca-certificates \
                     pkg-config \
                     ffmpeg \
                     libc6-dev \
