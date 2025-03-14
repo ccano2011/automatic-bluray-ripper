@@ -124,7 +124,7 @@ if [ "$useSmbShare" = true ]; then
         echo "password=$smbPassword" >> "$smbConfigFile"
         read -p "Enter local mount point for your Network/SMB share [Press 'Enter' for $mountPoint]: " userMount
         echo "mountPoint=${userMount:-$mountPoint}" >> "$smbConfigFile"
-        mkdir -p $mountPoint
+        sudo mkdir -p $mountPoint
         chmod 600 "$smbConfigFile"
         echo -e "\nCredentials stored securely."
     fi
@@ -187,6 +187,14 @@ if [ "$skip_encode" = true ]; then
                     curl \
                     cmake \
                     git \
+                    ffmpeg \
+                    libc6-dev \
+                    libssl-dev \
+                    libexpat1-dev \
+                    libavcodec-dev \
+                    libgl1-mesa-dev \
+                    qtbase5-dev \
+                    zlib1g-dev
                     libass-dev \
                     libbz2-dev \
                     libdrm-dev \
@@ -245,7 +253,8 @@ if [ "$skip_encode" = true ]; then
         # ./configure --launch-jobs="${cpuCount}" --launch --enable-qsv --enable-vce --enable-gtk --enable-x265
         # Default + Dolby Vision Support; Requires cargo-c to be installed. Try `cargo install cargo-c`
         ./configure --launch-jobs="${cpuCount}" --launch --enable-qsv --enable-vce --enable-gtk --enable-x265 --enable-libdovi
-        sudo make --directory=build install || { log "HandBrake failed to compile" "ERROR"; exit 1; }
+        cd build && sudo make -k
+        sudo make -k --directory=build install || { log "HandBrake failed to compile" "ERROR"; exit 1; }
     fi
 fi
 if ! command -v makemkvcon &> /dev/null; then
@@ -282,13 +291,13 @@ if ! command -v makemkvcon &> /dev/null; then
     cd makemkv-oss-"${LatestMakeMKVVersion}"
     mkdir -p ./tmp
     ./configure >> /dev/null  2>&1
-    sudo make -s -j"${cpuCount}" || { log "Failed to build MakeMKV-oss!" "ERROR"; exit 1; }
+    sudo make -k -s -j"${cpuCount}" || { log "Failed to build MakeMKV-oss!" "ERROR"; exit 1; }
     sudo make install || { log "Failed to install MakeMKV-oss!" "ERROR"; exit 1; }
 
     cd ../makemkv-bin-"${LatestMakeMKVVersion}"
     mkdir -p ./tmp
     echo "yes" >> ./tmp/eula_accepted
-    sudo make -s -j"${cpuCount}" || { log "Failed to build MakeMKV!" "ERROR"; exit 1; }
+    sudo make -k -s -j"${cpuCount}" || { log "Failed to build MakeMKV!" "ERROR"; exit 1; }
     sudo make install || { log "Failed to install MakeMKV!" "ERROR"; exit 1; }
 
     makeMKVPath="/usr/bin/makemkvcon"
