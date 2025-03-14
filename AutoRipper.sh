@@ -240,7 +240,7 @@ if [ "$skip_encode" = true ]; then
         fi
         cpuCount=$(nproc --all)
         git clone https://github.com/HandBrake/HandBrake.git
-        cd HandBrake && rm -rf build
+        cd HandBrake && sudo rm -rf build
         # Default HandBrake with GUI, Intel QSV & H.265 HVEC
         # ./configure --launch-jobs="${cpuCount}" --launch --enable-qsv --enable-vce --enable-gtk --enable-x265
         # Default + Dolby Vision Support; Requires cargo-c to be installed. Try `cargo install cargo-c`
