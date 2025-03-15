@@ -36,6 +36,10 @@ outputDirectory="$HOME/Videos/Rips"
 # SMB share details
 mountPoint="/mnt/smbshare"
 
+# Disk space management thresholds (in GB)
+minDiskSpace=100   # Start cleanup when free space is below this value
+targetDiskSpace=150  # Free up space until we have at least this much available
+
 # Initialize skip_encode & useSmbShare flag to false
 skip_encode=false
 useSmbShare=false
@@ -55,6 +59,103 @@ sdAutoRipperPresetFile="SD-DVD-Encode.json"
 uhdAutoRipperPresetFilePath="${SCRIPT_DIR}/Presets/${uhdAutoRipperPresetFile}"
 hdAutoRipperPresetFilePath="${SCRIPT_DIR}/Presets/${hdAutoRipperPresetFile}"
 sdAutoRipperPresetFilePath="${SCRIPT_DIR}/Presets/${sdAutoRipperPresetFile}"
+
+# Function to check available disk space in GB
+check_disk_space() {
+    local directory="$1"
+    local available_space
+    
+    # Get available space in KB, then convert to GB
+    available_space=$(df -k --output=avail "$(realpath "$directory")" | tail -n 1)
+    available_space=$((available_space / 1024 / 1024))
+    
+    echo "$available_space"
+}
+
+# Function to delete oldest files until target space is freed
+manage_disk_space() {
+    local directory="$1"
+    local min_space_gb="$2"    # Minimum space threshold in GB
+    local target_space_gb="$3" # Target space to free up to in GB
+    
+    log "Checking disk space management..." "PROCESS"
+    
+    # Check current available space
+    local available_space=$(check_disk_space "$directory")
+    
+    log "Current available disk space: ${available_space}GB" "INFO"
+    
+    # If space is below minimum threshold, start cleaning
+    if [ "$available_space" -lt "$min_space_gb" ]; then
+        log "Available space (${available_space}GB) is below minimum threshold (${min_space_gb}GB)" "WARNING"
+        log "Beginning cleanup to free space up to ${target_space_gb}GB" "PROCESS"
+        
+        # Continue deleting until we reach the target space or run out of files
+        while [ "$available_space" -lt "$target_space_gb" ]; do
+            # Find the oldest file in raw directory
+            local oldest_raw_file=$(find "$directory/raw" -type f -printf '%T+ %p\n' | sort | head -n 1 | cut -d' ' -f2-)
+            
+            # Find the oldest file in encode directory
+            local oldest_encode_file=$(find "$directory/encode" -type f -printf '%T+ %p\n' | sort | head -n 1 | cut -d' ' -f2-)
+            
+            # If no files found, break the loop
+            if [ -z "$oldest_raw_file" ] && [ -z "$oldest_encode_file" ]; then
+                log "No more files to delete" "WARNING"
+                break
+            fi
+            
+            # Get file ages
+            local raw_age=0
+            local encode_age=0
+            
+            if [ -n "$oldest_raw_file" ]; then
+                raw_age=$(date -d "$(stat -c %y "$oldest_raw_file")" +%s)
+            fi
+            
+            if [ -n "$oldest_encode_file" ]; then
+                encode_age=$(date -d "$(stat -c %y "$oldest_encode_file")" +%s)
+            fi
+            
+            # Determine which is older
+            local file_to_delete=""
+            
+            if [ -z "$oldest_encode_file" ]; then
+                file_to_delete="$oldest_raw_file"
+            elif [ -z "$oldest_raw_file" ]; then
+                file_to_delete="$oldest_encode_file"
+            elif [ "$raw_age" -lt "$encode_age" ]; then
+                file_to_delete="$oldest_raw_file"
+            else
+                file_to_delete="$oldest_encode_file"
+            fi
+            
+            # Get file size before deleting
+            local file_size=$(du -h "$file_to_delete" | cut -f1)
+            local file_name=$(basename "$file_to_delete")
+            
+            # Delete the file
+            log "Deleting oldest file: $file_name ($file_size)" "WARNING"
+            rm "$file_to_delete"
+            
+            if [ $? -ne 0 ]; then
+                log "Failed to delete file: $file_to_delete" "ERROR"
+                break
+            fi
+            
+            # Recheck available space
+            available_space=$(check_disk_space "$directory")
+            log "Available space after deletion: ${available_space}GB" "INFO"
+        done
+        
+        if [ "$available_space" -ge "$target_space_gb" ]; then
+            log "Cleanup completed successfully. Available space now: ${available_space}GB" "SUCCESS"
+        else
+            log "Cleanup finished but target space not reached. Available space: ${available_space}GB" "WARNING"
+        fi
+    else
+        log "Sufficient disk space available (${available_space}GB)" "INFO"
+    fi
+}
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -154,9 +255,18 @@ if [ ! -f "$configFile" ]; then
   read -p "Enter ripping output directory [Press 'Enter' for '$outputDirectory']: " userOutput
   outputDirectory=${userOutput:-$outputDirectory}
   
+  # Get disk space management settings
+  read -p "Enter minimum free space threshold in GB [Press 'Enter' for $minDiskSpace]: " userMinSpace
+  minDiskSpace=${userMinSpace:-$minDiskSpace}
+  
+  read -p "Enter target free space to maintain in GB [Press 'Enter' for $targetDiskSpace]: " userTargetSpace
+  targetDiskSpace=${userTargetSpace:-$targetDiskSpace}
+  
   # Save to config file
   echo "drive=$drive" > "$configFile"
   echo "outputDirectory=$outputDirectory" >> "$configFile"
+  echo "minDiskSpace=$minDiskSpace" >> "$configFile"
+  echo "targetDiskSpace=$targetDiskSpace" >> "$configFile"
 
   chmod 600 "$configFile"
   echo "Configuration saved."
@@ -165,6 +275,8 @@ else
   source "$configFile"
   echo "Drive: $drive"
   echo "Output Directory: $outputDirectory"
+  echo "Minimum Disk Space: ${minDiskSpace}GB"
+  echo "Target Disk Space: ${targetDiskSpace}GB"
 fi
 
 # Make sure the output directory exists
@@ -715,6 +827,10 @@ process_disc() {
     local startTime=$(date +"%Y-%m-%d %H:%M:%S")
     log "Process started at: $startTime" "INFO"
     
+    # Check disk space before starting the rip
+    log "Checking disk space before ripping..." "PROCESS"
+    manage_disk_space "$outputDirectory" "$minDiskSpace" "$targetDiskSpace"
+    
     # Rip the disc - now only returns the rip directory
     local ripDir=""
     ripDir=$(rip_bluray "$drive" "$outputDirectory")
@@ -791,7 +907,9 @@ fi
 
 # Main loop: monitor for disc and rip automatically
 lastKeyUpdate=$(date +%s)
+lastDiskCheck=$(date +%s)
 lastDiscState="false"
+diskCheckInterval=1800  # Check disk space every 30 minutes (1800 seconds)
 discWaitCount=0
 
 log "Entering main monitoring loop"
@@ -824,12 +942,21 @@ while true; do
         if [ $((discWaitCount % 10)) -eq 0 ]; then
             log "No disc detected. Waiting..."
         fi
-        # Check for key update every 24 hours
-        now=$(date +%s)
-        if (( now > lastKeyUpdate + 86400 )); then
 
+        # Periodic checks
+        now=$(date +%s)
+        
+        # Check for key update every 24 hours
+        if (( now > lastKeyUpdate + 86400 )); then
             update_makemkv_key
             lastKeyUpdate="$now"
+        fi
+        
+        # Check disk space periodically
+        if (( now > lastDiskCheck + diskCheckInterval )); then
+            log "Performing periodic disk space check..." "INFO"
+            manage_disk_space "$outputDirectory" "$minDiskSpace" "$targetDiskSpace"
+            lastDiskCheck="$now"
         fi
     fi
     
