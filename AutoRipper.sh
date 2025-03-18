@@ -483,60 +483,171 @@ evaluate_and_cleanup() {
         return 1
     fi
     
-    # Find the largest file - likely the main movie
-    log "Identifying largest file (likely the main feature)..." "INFO"
-    local largestFile=$(find "$ripDir" -type f -name "*.mkv" -printf "%s %p\n" | sort -nr | head -1 | cut -d' ' -f2-)
+    # Group files by their base name (before _t00, _t01, etc.)
+    log "Grouping files by base title name..." "INFO"
     
-    if [ -z "$largestFile" ]; then
-        log "Failed to identify largest file" "ERROR"
+    # Create an associative array to store file groups
+    declare -A fileGroups
+    
+    # Initialize group tracking
+    for f in "$ripDir"/*.mkv; do
+        local basename=$(basename "$f")
+        local baseTitle=${basename%_t*}
+        
+        if [[ -z "${fileGroups[$baseTitle]}" ]]; then
+            fileGroups[$baseTitle]="$f"
+        else
+            fileGroups[$baseTitle]="${fileGroups[$baseTitle]}|$f"
+        fi
+    done
+    
+    # Log the groups found
+    log "Found $(echo "${!fileGroups[@]}" | wc -w) distinct title groups" "INFO"
+    
+    # Now analyze each group to find potential duplicates based on size
+    log "Analyzing title groups for duplicates..." "INFO"
+    
+    local selectedTitle=""
+    local selectedGroup=""
+    local largestFileSize=0
+    
+    for group in "${!fileGroups[@]}"; do
+        log "Analyzing title group: $group" "INFO"
+        
+        # Get all files in this group
+        IFS='|' read -ra groupFiles <<< "${fileGroups[$group]}"
+        log "Group has ${#groupFiles[@]} files" "INFO"
+        
+        # Check if we have multiple files with identical/similar sizes
+        local sizeArray=()
+        local identicalSizes=false
+        local largestInGroup=""
+        local largestSizeInGroup=0
+        
+        for file in "${groupFiles[@]}"; do
+            local fileSize=$(stat -c %s "$file")
+            sizeArray+=($fileSize)
+            
+            # Track largest file in group
+            if [ "$fileSize" -gt "$largestSizeInGroup" ]; then
+                largestSizeInGroup=$fileSize
+                largestInGroup="$file"
+            fi
+        done
+        
+        # Determine if files have identical or very similar sizes (within 1% difference)
+        local identicalCount=0
+        local threshold=$((largestSizeInGroup / 100))  # 1% threshold
+        
+        for size in "${sizeArray[@]}"; do
+            if [ $((largestSizeInGroup - size)) -le $threshold ]; then
+                identicalCount=$((identicalCount + 1))
+            fi
+        done
+        
+        # If we have multiple files with nearly identical sizes
+        if [ $identicalCount -gt 1 ]; then
+            log "Detected $identicalCount duplicate titles with similar sizes in group $group" "INFO"
+            
+            # Prefer lower track numbers (t00, t01) when sizes are similar
+            local bestTrack=""
+            local bestTrackNum=999
+            
+            for file in "${groupFiles[@]}"; do
+                local fileSize=$(stat -c %s "$file")
+                # Only consider files within 1% size difference
+                if [ $((largestSizeInGroup - fileSize)) -le $threshold ]; then
+                    local basename=$(basename "$file")
+                    local trackNum=$(echo "$basename" | grep -o "t[0-9]\+" | sed 's/t//')
+                    
+                    # Convert to integer
+                    trackNum=$((10#$trackNum))
+                    
+                    if [ $trackNum -lt $bestTrackNum ]; then
+                        bestTrackNum=$trackNum
+                        bestTrack="$file"
+                    fi
+                fi
+            done
+            
+            log "Selected track t$(printf "%02d" $bestTrackNum) from duplicate set as it has the lowest track number" "INFO"
+            largestInGroup="$bestTrack"
+        fi
+        
+        # Now compare with the best choice so far across all groups
+        local groupBestSize=$(stat -c %s "$largestInGroup")
+        local sizeMB=$((groupBestSize / 1024 / 1024))
+        
+        log "Best file in group: $(basename "$largestInGroup") (${sizeMB}MB)" "INFO"
+        
+        if [ "$groupBestSize" -gt "$largestFileSize" ]; then
+            largestFileSize=$groupBestSize
+            selectedTitle="$largestInGroup"
+            selectedGroup="$group"
+        fi
+    done
+    
+    # Final selected title
+    if [ -z "$selectedTitle" ] || [ ! -f "$selectedTitle" ]; then
+        log "Failed to identify a valid title file" "ERROR"
         return 1
     fi
     
     # Get file size in human-readable format
-    local fileSize=$(du -h "$largestFile" | cut -f1)
-    log "Largest file found: $(basename "$largestFile") ($fileSize)" "INFO"
+    local fileSize=$(du -h "$selectedTitle" | cut -f1)
+    log "Selected title: $(basename "$selectedTitle") ($fileSize)" "INFO"
     
     # Extract the title directly from the filename
-    local filename=$(basename "$largestFile")
-    # Get everything before "_t" which is the title portion
+    local filename=$(basename "$selectedTitle")
     local discTitle=${filename%_t*}
     
     log "Extracted title from filename: \"$discTitle\"" "INFO"
     
     # Define file paths with proper organization
-    local tempFile="$outputDirectory/raw/${discTitle}_temp.mkv"
     local finalRawFile="$outputDirectory/raw/${discTitle}.mkv"
     local finalEncodedFile="$outputDirectory/encode/${discTitle}.mkv"
     local outputFile=""
     
-    log "Creating temporary file: $tempFile" "PROCESS"
-    log "Copying file (this may take a while for large files)..." "INFO"
+    log "Deleting unused MKV files to free up space..." "PROCESS"
+    local deleteCount=0
+    local freedSpaceBytes=0
     
-    cp "$largestFile" "$tempFile"
-    local cpStatus=$?
+    for f in "$ripDir"/*.mkv; do
+        if [ "$f" != "$selectedTitle" ]; then
+            local fileSizeBytes=$(stat -c %s "$f")
+            freedSpaceBytes=$((freedSpaceBytes + fileSizeBytes))
+            local deleteSizeHuman=$(du -h "$f" | cut -f1)
+            log "Deleting unused file: $(basename "$f") ($deleteSizeHuman)" "INFO"
+            rm "$f"
+            deleteCount=$((deleteCount + 1))
+        fi
+    done
     
-    if [ $cpStatus -ne 0 ]; then
-        log "Failed to create temporary file (status: $cpStatus)" "ERROR"
-        return 1
-    fi
-
-    # Process with HandBrakeCLI if not skipping encoding and preset path exists
-    if [ "$skip_encode" = false ] ; then
+    # Convert bytes to GB for reporting
+    local freedSpaceGB=$(echo "scale=2; $freedSpaceBytes/1024/1024/1024" | bc)
+    log "Deleted $deleteCount unused files, freed approximately ${freedSpaceGB}GB of space" "SUCCESS"
+    
+    # Check disk space after cleanup
+    local available_space=$(check_disk_space "$outputDirectory")
+    log "Available disk space after deleting unused files: ${available_space}GB" "INFO"
+    
+    # Check if we're using the file directly or encoding
+    if [ "$skip_encode" = false ]; then    
         if [ -f "$presetPath" ]; then
             log "Preset File passed in: $presetName" "INFO"
-            HandBrakeCLI --preset-import-file "$presetPath" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+            HandBrakeCLI --preset-import-file "$presetPath" -i "$selectedTitle" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                 log "HandBrake: $line" "INFO"
             done
         elif [ -n "$presetName" ]; then
             log "Preset explicitly in: $presetName" "INFO"
-            HandBrakeCLI --preset "$presetName" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+            HandBrakeCLI --preset "$presetName" -i "$selectedTitle" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                 log "HandBrake: $line" "INFO"
             done
             log "Using user-specified preset: $presetName" "INFO"
         else
             # Auto-detect resolution and select appropriate preset
             log "No preset arguments passed by the user..." "INFO"
-            local resolution_type=$(detect_video_resolution "$tempFile")
+            local resolution_type=$(detect_video_resolution "$selectedTitle")
             case "$resolution_type" in
                 "uhd")
                     if [ -f "$uhdAutoRipperPresetFilePath" ]; then
@@ -547,7 +658,7 @@ evaluate_and_cleanup() {
                         preset=(--preset "$uhdPresetName")
                     fi
                     log "Running HandBrakeCLI encoder..." "PROCESS"
-                    HandBrakeCLI "${preset[@]}" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                    HandBrakeCLI "${preset[@]}" -i "$selectedTitle" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                         log "HandBrake: $line" "INFO"
                     done
                     ;;
@@ -560,7 +671,7 @@ evaluate_and_cleanup() {
                         preset=(--preset "$hdPresetName")
                     fi
                     log "Running HandBrakeCLI encoder..." "PROCESS"
-                    HandBrakeCLI "${preset[@]}" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                    HandBrakeCLI "${preset[@]}" -i "$selectedTitle" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                         log "HandBrake: $line" "INFO"
                     done
                     ;;
@@ -573,7 +684,7 @@ evaluate_and_cleanup() {
                         preset=(--preset "$sdPresetName")
                     fi
                     log "Running HandBrakeCLI encoder..." "PROCESS"
-                    HandBrakeCLI "${preset[@]}" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                    HandBrakeCLI "${preset[@]}" -i "$selectedTitle" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                         log "HandBrake: $line" "INFO"
                     done
                     ;;
@@ -581,7 +692,7 @@ evaluate_and_cleanup() {
                     # Fallback to HD preset
                     log "Could not determine resolution, using default HD preset: $hdPresetName" "WARNING"
                     log "Running HandBrakeCLI encoder..." "PROCESS"
-                    HandBrakeCLI --preset "$hdPresetName" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                    HandBrakeCLI --preset "$hdPresetName" -i "$selectedTitle" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                         log "HandBrake: $line" "INFO"
                     done
                     ;;
@@ -591,37 +702,41 @@ evaluate_and_cleanup() {
         # Check if encoding was successful
         if [ -f "$finalEncodedFile" ]; then
             log "Successfully encoded final file: $finalEncodedFile" "SUCCESS"
-            # Move the temp file to the raw directory for archiving
-            mv "$tempFile" "$finalRawFile"
-            log "Original file saved as: $finalRawFile" "INFO"
+            
+            # Also move the original to raw for archiving if requested
+            log "Moving original file to raw directory..." "INFO"
+            mv "$selectedTitle" "$finalRawFile"
+            
+            # Set output file to the encoded version
             outputFile="$finalEncodedFile"
         else
             log "Encoding failed, using raw file as final" "WARNING"
-            mv "$tempFile" "$finalRawFile"
+            mv "$selectedTitle" "$finalRawFile"
             outputFile="$finalRawFile"
         fi
     else
-        # No HandBrake encoding needed, just use the temp file as final raw
-        if [ "$skip_encode" = true ]; then
-            log "Skipping encoding as requested by --no-encode flag" "INFO"
-        else
-            log "No encoding configuration provided, skipping encoding" "INFO"
-        fi
-        mv "$tempFile" "$finalRawFile"
+        # No encoding, just move the file to raw directory
+        log "Skipping encoding, moving selected title directly to raw directory" "INFO"
+        mv "$selectedTitle" "$finalRawFile"
         outputFile="$finalRawFile"
     fi
     
-    # Show file details
-    local finalSize=$(du -h "$outputFile" | cut -f1)
-    log "Final file size: $finalSize" "INFO"
+    log "Cleaning up any remaining temporary files..." "INFO"
+    
+    # Clean up any non-MKV files that might be left
+    local remainingFiles=$(find "$ripDir" -type f ! -name "*.mkv" | wc -l)
+    if [ $remainingFiles -gt 0 ]; then
+        log "Removing $remainingFiles additional temporary files" "INFO"
+    fi
     
     # Clean up temporary rip directory
-    log "Cleaning up temporary files..." "INFO"
+    log "Removing temporary rip directory..." "INFO"
     rm -rf "$ripDir"
     log "Temporary directory removed" "INFO"
     
     echo "$outputFile"
 }
+
 
 # Function to mount SMB share
 mount_smb_share() {
