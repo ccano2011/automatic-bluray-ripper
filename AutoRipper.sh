@@ -632,22 +632,27 @@ evaluate_and_cleanup() {
     log "Available disk space after deleting unused files: ${available_space}GB" "INFO"
     
     # Check if we're using the file directly or encoding
-    if [ "$skip_encode" = false ]; then    
+    if [ "$skip_encode" = false ]; then
+        # Move the original file to raw for archiving first
+        log "Moving original file to raw directory..." "INFO"
+        mv "$selectedTitle" "$finalRawFile"
+        
+        # Now handle encoding with different presets
         if [ -f "$presetPath" ]; then
             log "Preset File passed in: $presetName" "INFO"
-            HandBrakeCLI --preset-import-file "$presetPath" -i "$selectedTitle" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+            HandBrakeCLI --preset-import-file "$presetPath" -i "$finalRawFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                 log "HandBrake: $line" "INFO"
             done
         elif [ -n "$presetName" ]; then
             log "Preset explicitly in: $presetName" "INFO"
-            HandBrakeCLI --preset "$presetName" -i "$selectedTitle" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+            HandBrakeCLI --preset "$presetName" -i "$finalRawFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                 log "HandBrake: $line" "INFO"
             done
             log "Using user-specified preset: $presetName" "INFO"
         else
             # Auto-detect resolution and select appropriate preset
             log "No preset arguments passed by the user..." "INFO"
-            local resolution_type=$(detect_video_resolution "$selectedTitle")
+            local resolution_type=$(detect_video_resolution "$finalRawFile")
             case "$resolution_type" in
                 "uhd")
                     if [ -f "$uhdAutoRipperPresetFilePath" ]; then
@@ -658,7 +663,7 @@ evaluate_and_cleanup() {
                         preset=(--preset "$uhdPresetName")
                     fi
                     log "Running HandBrakeCLI encoder..." "PROCESS"
-                    HandBrakeCLI "${preset[@]}" -i "$selectedTitle" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                    HandBrakeCLI "${preset[@]}" -i "$finalRawFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                         log "HandBrake: $line" "INFO"
                     done
                     ;;
@@ -671,7 +676,7 @@ evaluate_and_cleanup() {
                         preset=(--preset "$hdPresetName")
                     fi
                     log "Running HandBrakeCLI encoder..." "PROCESS"
-                    HandBrakeCLI "${preset[@]}" -i "$selectedTitle" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                    HandBrakeCLI "${preset[@]}" -i "$finalRawFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                         log "HandBrake: $line" "INFO"
                     done
                     ;;
@@ -684,7 +689,7 @@ evaluate_and_cleanup() {
                         preset=(--preset "$sdPresetName")
                     fi
                     log "Running HandBrakeCLI encoder..." "PROCESS"
-                    HandBrakeCLI "${preset[@]}" -i "$selectedTitle" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                    HandBrakeCLI "${preset[@]}" -i "$finalRawFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                         log "HandBrake: $line" "INFO"
                     done
                     ;;
@@ -692,7 +697,7 @@ evaluate_and_cleanup() {
                     # Fallback to HD preset
                     log "Could not determine resolution, using default HD preset: $hdPresetName" "WARNING"
                     log "Running HandBrakeCLI encoder..." "PROCESS"
-                    HandBrakeCLI --preset "$hdPresetName" -i "$selectedTitle" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                    HandBrakeCLI --preset "$hdPresetName" -i "$finalRawFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                         log "HandBrake: $line" "INFO"
                     done
                     ;;
@@ -703,38 +708,41 @@ evaluate_and_cleanup() {
         if [ -f "$finalEncodedFile" ]; then
             log "Successfully encoded final file: $finalEncodedFile" "SUCCESS"
             
-            # Also move the original to raw for archiving if requested
-            log "Moving original file to raw directory..." "INFO"
-            mv "$selectedTitle" "$finalRawFile"
-            
-            # Set output file to the encoded version
-            outputFile="$finalEncodedFile"
+            # If SMB sharing is enabled, copy the encoded file and delete both encoded and raw files
+            if [ "$useSmbShare" = true ]; then
+                log "Moving encoded file to SMB share..." "PROCESS"
+                move_file_to_smb_share "$finalEncodedFile" true "$finalRawFile"
+                outputFile="" # File was deleted after SMB transfer
+            else
+                # Keep the files locally
+                outputFile="$finalEncodedFile"
+            fi
         else
             log "Encoding failed, using raw file as final" "WARNING"
-            mv "$selectedTitle" "$finalRawFile"
-            outputFile="$finalRawFile"
+            
+            # If SMB sharing is enabled, copy the raw file
+            if [ "$useSmbShare" = true ]; then
+                log "Moving raw file to SMB share..." "PROCESS"
+                move_file_to_smb_share "$finalRawFile"
+                outputFile="" # File was deleted after SMB transfer
+            else
+                outputFile="$finalRawFile"
+            fi
         fi
     else
         # No encoding, just move the file to raw directory
         log "Skipping encoding, moving selected title directly to raw directory" "INFO"
         mv "$selectedTitle" "$finalRawFile"
-        outputFile="$finalRawFile"
+        
+        # If SMB sharing is enabled, copy the raw file
+        if [ "$useSmbShare" = true ]; then
+            log "Moving raw file to SMB share..." "PROCESS"
+            move_file_to_smb_share "$finalRawFile"
+            outputFile="" # File was deleted after SMB transfer
+        else
+            outputFile="$finalRawFile"
+        fi
     fi
-    
-    log "Cleaning up any remaining temporary files..." "INFO"
-    
-    # Clean up any non-MKV files that might be left
-    local remainingFiles=$(find "$ripDir" -type f ! -name "*.mkv" | wc -l)
-    if [ $remainingFiles -gt 0 ]; then
-        log "Removing $remainingFiles additional temporary files" "INFO"
-    fi
-    
-    # Clean up temporary rip directory
-    log "Removing temporary rip directory..." "INFO"
-    rm -rf "$ripDir"
-    log "Temporary directory removed" "INFO"
-    
-    echo "$outputFile"
 }
 
 
@@ -772,6 +780,8 @@ mount_smb_share() {
 # Function to move file to SMB share
 move_file_to_smb_share() {
     local file=$1
+    local is_encoded_file=${2:-false}  # Flag to indicate if this is a Handbrake-encoded file
+    local raw_source_file=${3:-""}     # Original raw file path (only needed for encoded files)
     
     if [ ! -f "$file" ]; then
         log "Error: File $file does not exist" "ERROR"
@@ -789,7 +799,6 @@ move_file_to_smb_share() {
     
     local filename=$(basename "$file")
     local filesize=$(du -h "$file" | cut -f1)
-    
     log "Moving file \"$filename\" ($filesize) to SMB share..." "PROCESS"
     log "Destination: $mountPoint/" "INFO"
     
@@ -807,17 +816,32 @@ move_file_to_smb_share() {
     
     if [ $? -eq 0 ]; then
         log "Successfully copied \"$filename\" to SMB share" "SUCCESS"
-        # log "Removing local copy..." "INFO"
-        # rm "$file"
-        # if [ $? -eq 0 ]; then
-        #     log "Local copy removed" "INFO"
-        # else
-        #     log "Warning: Failed to remove local copy" "WARNING"
-        # fi
+        
+        # Always delete the file that was just copied
+        log "Removing local copy of \"$filename\"..." "INFO"
+        rm "$file"
+        if [ $? -eq 0 ]; then
+            log "Local copy of \"$filename\" removed" "INFO"
+        else
+            log "Warning: Failed to remove local copy of \"$filename\"" "WARNING"
+        fi
+        
+        # If this is an encoded file, also delete the original raw file
+        if [ "$is_encoded_file" = true ] && [ -n "$raw_source_file" ] && [ -f "$raw_source_file" ]; then
+            log "Removing original raw file \"$(basename "$raw_source_file")\"..." "INFO"
+            rm "$raw_source_file"
+            if [ $? -eq 0 ]; then
+                log "Original raw file removed" "INFO"
+            else
+                log "Warning: Failed to remove original raw file" "WARNING"
+            fi
+        fi
     else
         log "Failed to copy file to SMB share" "ERROR"
         return 1
     fi
+    
+    return 0
 }
 
 # Function to handle the complete ripping process
@@ -859,19 +883,10 @@ process_disc() {
         return 1
     fi
     
-    # Validate finalFile exists
-    if [ ! -f "$finalFile" ]; then
+    # Validate finalFile exists if not using SMB
+    if [ -n "$finalFile" ] && [ ! -f "$finalFile" ]; then
         log "Final file does not exist: $finalFile" "ERROR"
         return 1
-    fi
-
-    if [ "$useSmbShare" = true ]; then
-        # Move to SMB share
-        log "Preparing to transfer file to network storage..." "PROCESS"
-        if ! move_file_to_smb_share "$finalFile"; then
-            log "Failed to move file to SMB share" "ERROR"
-            return 1
-        fi
     fi
 
     # Eject the disc
