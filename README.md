@@ -23,7 +23,7 @@ Bypass auto shutdown
 Use a specific preset file
 `./AutoRipper.sh --preset-file=UHD-BluRay-Encode.json`
 
-Use a specific preset name
+Use a specific preset name (refer to [Handbrake's Preset Documentation](https://handbrake.fr/docs/en/latest/technical/official-presets.html))
 `./AutoRipper.sh --preset="Super HQ 2160p60 4K HEVC Surround"`
 
 Combine options
