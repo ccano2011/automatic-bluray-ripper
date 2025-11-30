@@ -948,18 +948,9 @@ else
 fi
 
 # Eject any disc that might be in the drive at startup
+eject_disc
+sleep 10
 initialDiscState=$(check_disc_in_drive)
-if [[ "$initialDiscState" == "true" ]]; then
-    log "Disc detected in drive at startup, ejecting..." "INFO"
-    eject_disc
-    sleep 10  # Increased wait time for drive to fully eject
-    # Verify ejection
-    sleep 2
-    verifyState=$(check_disc_in_drive)
-    if [[ "$verifyState" == "true" ]]; then
-        log "Warning: Disc may not have ejected properly" "WARNING"
-    fi
-fi
 
 # Ensure we start with correct state
 lastDiscState=$(check_disc_in_drive)
