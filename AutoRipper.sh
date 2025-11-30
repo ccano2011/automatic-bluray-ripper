@@ -36,9 +36,10 @@ outputDirectory="$HOME/Videos/Rips"
 # SMB share details
 mountPoint="/mnt/smbshare"
 
-# Initialize skip_encode & useSmbShare flag to false
+# Initialize skip_encode & useSmbShare & auto_shutdown flags
 skip_encode=false
 useSmbShare=false
+auto_shutdown=true
 
 #HandBrakeCLI Built-in presets
 uhdPresetName="Super HQ 2160p60 4K HEVC Surround"
@@ -69,6 +70,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-encode)
       skip_encode=true
+      shift
+      ;;
+    --no-shutdown)
+      auto_shutdown=false
       shift
       ;;
     --preset-file=*)
@@ -349,12 +354,23 @@ rip_bluray() {
 
 # Function to eject the disc
 eject_disc() {
-    log "Ejecting disc..."
+    log "Ejecting disc..." "PROCESS"
     eject "$drive" 2>/dev/null || 
     sudo eject "$drive" 2>/dev/null || 
-    { log "Failed to eject disc using eject command"; return 1; }
+    { log "Failed to eject disc using eject command" "WARNING"; return 1; }
     
-    log "Disc ejected successfully"
+    log "Disc ejected successfully" "SUCCESS"
+    return 0
+}
+
+# Function to close the disc tray
+close_tray() {
+    log "Attempting to close disc tray..." "PROCESS"
+    eject -t "$drive" 2>/dev/null || 
+    sudo eject -t "$drive" 2>/dev/null || 
+    { log "Failed to close disc tray using eject command" "WARNING"; return 1; }
+    
+    log "Disc tray closed successfully" "SUCCESS"
     return 0
 }
 
@@ -919,15 +935,36 @@ fi
 lastKeyUpdate=$(date +%s)
 lastDiscState="false"
 discWaitCount=0
+lastActivityTime=$(date +%s)
+SHUTDOWN_TIMEOUT=10800  # 3 hours in seconds (3 * 60 * 60)
 
 log "Entering main monitoring loop"
 
+# Auto-shutdown status message
+if [ "$auto_shutdown" = true ]; then
+    log "Auto-shutdown is ENABLED - system will shutdown after 3 hours of no disc activity" "WARNING"
+else
+    log "Auto-shutdown is DISABLED (--no-shutdown flag was used)" "INFO"
+fi
+
+# Eject any disc that might be in the drive at startup
+initialDiscState=$(check_disc_in_drive)
+if [[ "$initialDiscState" == "true" ]]; then
+    log "Disc detected in drive at startup, ejecting..." "INFO"
+    eject_disc
+    sleep 5
+fi
+
 while true; do
     currentDiscState=$(check_disc_in_drive)
+    currentTime=$(date +%s)
     
     # Only proceed if the drive state has changed to "disc inserted"
     if [[ "$currentDiscState" == "true" && "$lastDiscState" == "false" ]]; then
         log "Disc detected in drive $drive"
+        
+        # Reset activity timer when disc is detected
+        lastActivityTime=$(date +%s)
         
         # Wait a moment for the disc to be fully readable
         log "Waiting for disc to become ready..."
@@ -935,6 +972,9 @@ while true; do
         
         # Process the disc
         process_disc
+        
+        # Update activity time after processing completes
+        lastActivityTime=$(date +%s)
         
         # Update state
         lastDiscState="false"
@@ -950,12 +990,35 @@ while true; do
         if [ $((discWaitCount % 10)) -eq 0 ]; then
             log "No disc detected. Waiting..."
         fi
+        
         # Check for key update every 24 hours
         now=$(date +%s)
         if (( now > lastKeyUpdate + 86400 )); then
-
             update_makemkv_key
             lastKeyUpdate="$now"
+        fi
+        
+        # Check for shutdown timeout (only if auto_shutdown is enabled)
+        if [ "$auto_shutdown" = true ]; then
+            timeSinceActivity=$((currentTime - lastActivityTime))
+            
+            # Log warning at 2 hours 45 minutes (15 minutes before shutdown)
+            if [ $timeSinceActivity -ge 9900 ] && [ $timeSinceActivity -lt 9930 ]; then
+                log "WARNING: No disc activity for 2 hours 45 minutes. System will shutdown in 15 minutes if no disc is inserted." "WARNING"
+            fi
+            
+            if [ $timeSinceActivity -ge $SHUTDOWN_TIMEOUT ]; then
+                log "No disc detected for 3 hours. Initiating shutdown sequence..." "WARNING"
+                
+                # Close the disc tray before shutdown
+                log "Closing disc tray before shutdown..." "PROCESS"
+                close_tray
+                sleep 2
+                
+                log "Shutting down system now..." "WARNING"
+                sudo shutdown -h now
+                exit 0
+            fi
         fi
     fi
     
