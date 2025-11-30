@@ -627,10 +627,6 @@ evaluate_and_cleanup() {
     local freedSpaceGB=$(echo "scale=2; $freedSpaceBytes/1024/1024/1024" | bc)
     log "Deleted $deleteCount unused files, freed approximately ${freedSpaceGB}GB of space" "SUCCESS"
     
-    # Check disk space after cleanup
-    local available_space=$(check_disk_space "$outputDirectory")
-    log "Available disk space after deleting unused files: ${available_space}GB" "INFO"
-    
     # Check if we're using the file directly or encoding
     if [ "$skip_encode" = false ]; then
         # Move the original file to raw for archiving first
