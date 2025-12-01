@@ -950,10 +950,6 @@ fi
 # Eject any disc that might be in the drive at startup
 eject_disc
 sleep 10
-initialDiscState=$(check_disc_in_drive)
-
-# Ensure we start with correct state
-lastDiscState=$(check_disc_in_drive)
 
 while true; do
     currentDiscState=$(check_disc_in_drive)
