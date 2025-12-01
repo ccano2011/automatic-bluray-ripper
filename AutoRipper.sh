@@ -36,9 +36,10 @@ outputDirectory="$HOME/Videos/Rips"
 # SMB share details
 mountPoint="/mnt/smbshare"
 
-# Initialize skip_encode & useSmbShare flag to false
+# Initialize skip_encode & useSmbShare & auto_shutdown flags
 skip_encode=false
 useSmbShare=false
+auto_shutdown=true
 
 #HandBrakeCLI Built-in presets
 uhdPresetName="Super HQ 2160p60 4K HEVC Surround"
@@ -69,6 +70,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-encode)
       skip_encode=true
+      shift
+      ;;
+    --no-shutdown)
+      auto_shutdown=false
       shift
       ;;
     --preset-file=*)
@@ -349,12 +354,23 @@ rip_bluray() {
 
 # Function to eject the disc
 eject_disc() {
-    log "Ejecting disc..."
+    log "Ejecting disc..." "PROCESS"
     eject "$drive" 2>/dev/null || 
     sudo eject "$drive" 2>/dev/null || 
-    { log "Failed to eject disc using eject command"; return 1; }
+    { log "Failed to eject disc using eject command" "WARNING"; return 1; }
     
-    log "Disc ejected successfully"
+    log "Disc ejected successfully" "SUCCESS"
+    return 0
+}
+
+# Function to close the disc tray
+close_tray() {
+    log "Attempting to close disc tray..." "PROCESS"
+    eject -t "$drive" 2>/dev/null || 
+    sudo eject -t "$drive" 2>/dev/null || 
+    { log "Failed to close disc tray using eject command" "WARNING"; return 1; }
+    
+    log "Disc tray closed successfully" "SUCCESS"
     return 0
 }
 
@@ -483,60 +499,172 @@ evaluate_and_cleanup() {
         return 1
     fi
     
-    # Find the largest file - likely the main movie
-    log "Identifying largest file (likely the main feature)..." "INFO"
-    local largestFile=$(find "$ripDir" -type f -name "*.mkv" -printf "%s %p\n" | sort -nr | head -1 | cut -d' ' -f2-)
+    # Group files by their base name (before _t00, _t01, etc.)
+    log "Grouping files by base title name..." "INFO"
     
-    if [ -z "$largestFile" ]; then
-        log "Failed to identify largest file" "ERROR"
+    # Create an associative array to store file groups
+    declare -A fileGroups
+    
+    # Initialize group tracking
+    for f in "$ripDir"/*.mkv; do
+        local basename=$(basename "$f")
+        local baseTitle=${basename%_t*}
+        
+        if [[ -z "${fileGroups[$baseTitle]}" ]]; then
+            fileGroups[$baseTitle]="$f"
+        else
+            fileGroups[$baseTitle]="${fileGroups[$baseTitle]}|$f"
+        fi
+    done
+    
+    # Log the groups found
+    log "Found $(echo "${!fileGroups[@]}" | wc -w) distinct title groups" "INFO"
+    
+    # Now analyze each group to find potential duplicates based on size
+    log "Analyzing title groups for duplicates..." "INFO"
+    
+    local selectedTitle=""
+    local selectedGroup=""
+    local largestFileSize=0
+    
+    for group in "${!fileGroups[@]}"; do
+        log "Analyzing title group: $group" "INFO"
+        
+        # Get all files in this group
+        IFS='|' read -ra groupFiles <<< "${fileGroups[$group]}"
+        log "Group has ${#groupFiles[@]} files" "INFO"
+        
+        # Check if we have multiple files with identical/similar sizes
+        local sizeArray=()
+        local identicalSizes=false
+        local largestInGroup=""
+        local largestSizeInGroup=0
+        
+        for file in "${groupFiles[@]}"; do
+            local fileSize=$(stat -c %s "$file")
+            sizeArray+=($fileSize)
+            
+            # Track largest file in group
+            if [ "$fileSize" -gt "$largestSizeInGroup" ]; then
+                largestSizeInGroup=$fileSize
+                largestInGroup="$file"
+            fi
+        done
+        
+        # Determine if files have identical or very similar sizes (within 1% difference)
+        local identicalCount=0
+        local threshold=$((largestSizeInGroup / 100))  # 1% threshold
+        
+        for size in "${sizeArray[@]}"; do
+            if [ $((largestSizeInGroup - size)) -le $threshold ]; then
+                identicalCount=$((identicalCount + 1))
+            fi
+        done
+        
+        # If we have multiple files with nearly identical sizes
+        if [ $identicalCount -gt 1 ]; then
+            log "Detected $identicalCount duplicate titles with similar sizes in group $group" "INFO"
+            
+            # Prefer lower track numbers (t00, t01) when sizes are similar
+            local bestTrack=""
+            local bestTrackNum=999
+            
+            for file in "${groupFiles[@]}"; do
+                local fileSize=$(stat -c %s "$file")
+                # Only consider files within 1% size difference
+                if [ $((largestSizeInGroup - fileSize)) -le $threshold ]; then
+                    local basename=$(basename "$file")
+                    local trackNum=$(echo "$basename" | grep -o "t[0-9]\+" | sed 's/t//')
+                    
+                    # Convert to integer
+                    trackNum=$((10#$trackNum))
+                    
+                    if [ $trackNum -lt $bestTrackNum ]; then
+                        bestTrackNum=$trackNum
+                        bestTrack="$file"
+                    fi
+                fi
+            done
+            
+            log "Selected track t$(printf "%02d" $bestTrackNum) from duplicate set as it has the lowest track number" "INFO"
+            largestInGroup="$bestTrack"
+        fi
+        
+        # Now compare with the best choice so far across all groups
+        local groupBestSize=$(stat -c %s "$largestInGroup")
+        local sizeMB=$((groupBestSize / 1024 / 1024))
+        
+        log "Best file in group: $(basename "$largestInGroup") (${sizeMB}MB)" "INFO"
+        
+        if [ "$groupBestSize" -gt "$largestFileSize" ]; then
+            largestFileSize=$groupBestSize
+            selectedTitle="$largestInGroup"
+            selectedGroup="$group"
+        fi
+    done
+    
+    # Final selected title
+    if [ -z "$selectedTitle" ] || [ ! -f "$selectedTitle" ]; then
+        log "Failed to identify a valid title file" "ERROR"
         return 1
     fi
     
     # Get file size in human-readable format
-    local fileSize=$(du -h "$largestFile" | cut -f1)
-    log "Largest file found: $(basename "$largestFile") ($fileSize)" "INFO"
+    local fileSize=$(du -h "$selectedTitle" | cut -f1)
+    log "Selected title: $(basename "$selectedTitle") ($fileSize)" "INFO"
     
     # Extract the title directly from the filename
-    local filename=$(basename "$largestFile")
-    # Get everything before "_t" which is the title portion
+    local filename=$(basename "$selectedTitle")
     local discTitle=${filename%_t*}
     
     log "Extracted title from filename: \"$discTitle\"" "INFO"
     
     # Define file paths with proper organization
-    local tempFile="$outputDirectory/raw/${discTitle}_temp.mkv"
     local finalRawFile="$outputDirectory/raw/${discTitle}.mkv"
     local finalEncodedFile="$outputDirectory/encode/${discTitle}.mkv"
     local outputFile=""
     
-    log "Creating temporary file: $tempFile" "PROCESS"
-    log "Copying file (this may take a while for large files)..." "INFO"
+    log "Deleting unused MKV files to free up space..." "PROCESS"
+    local deleteCount=0
+    local freedSpaceBytes=0
     
-    cp "$largestFile" "$tempFile"
-    local cpStatus=$?
+    for f in "$ripDir"/*.mkv; do
+        if [ "$f" != "$selectedTitle" ]; then
+            local fileSizeBytes=$(stat -c %s "$f")
+            freedSpaceBytes=$((freedSpaceBytes + fileSizeBytes))
+            local deleteSizeHuman=$(du -h "$f" | cut -f1)
+            log "Deleting unused file: $(basename "$f") ($deleteSizeHuman)" "INFO"
+            rm "$f"
+            deleteCount=$((deleteCount + 1))
+        fi
+    done
     
-    if [ $cpStatus -ne 0 ]; then
-        log "Failed to create temporary file (status: $cpStatus)" "ERROR"
-        return 1
-    fi
-
-    # Process with HandBrakeCLI if not skipping encoding and preset path exists
-    if [ "$skip_encode" = false ] ; then
+    # Convert bytes to GB for reporting
+    local freedSpaceGB=$(echo "scale=2; $freedSpaceBytes/1024/1024/1024" | bc)
+    log "Deleted $deleteCount unused files, freed approximately ${freedSpaceGB}GB of space" "SUCCESS"
+    
+    # Check if we're using the file directly or encoding
+    if [ "$skip_encode" = false ]; then
+        # Move the original file to raw for archiving first
+        log "Moving original file to raw directory..." "INFO"
+        mv "$selectedTitle" "$finalRawFile"
+        
+        # Now handle encoding with different presets
         if [ -f "$presetPath" ]; then
             log "Preset File passed in: $presetName" "INFO"
-            HandBrakeCLI --preset-import-file "$presetPath" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+            HandBrakeCLI --preset-import-file "$presetPath" -i "$finalRawFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                 log "HandBrake: $line" "INFO"
             done
         elif [ -n "$presetName" ]; then
             log "Preset explicitly in: $presetName" "INFO"
-            HandBrakeCLI --preset "$presetName" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+            HandBrakeCLI --preset "$presetName" -i "$finalRawFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                 log "HandBrake: $line" "INFO"
             done
             log "Using user-specified preset: $presetName" "INFO"
         else
             # Auto-detect resolution and select appropriate preset
             log "No preset arguments passed by the user..." "INFO"
-            local resolution_type=$(detect_video_resolution "$tempFile")
+            local resolution_type=$(detect_video_resolution "$finalRawFile")
             case "$resolution_type" in
                 "uhd")
                     if [ -f "$uhdAutoRipperPresetFilePath" ]; then
@@ -547,7 +675,7 @@ evaluate_and_cleanup() {
                         preset=(--preset "$uhdPresetName")
                     fi
                     log "Running HandBrakeCLI encoder..." "PROCESS"
-                    HandBrakeCLI "${preset[@]}" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                    HandBrakeCLI "${preset[@]}" -i "$finalRawFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                         log "HandBrake: $line" "INFO"
                     done
                     ;;
@@ -560,7 +688,7 @@ evaluate_and_cleanup() {
                         preset=(--preset "$hdPresetName")
                     fi
                     log "Running HandBrakeCLI encoder..." "PROCESS"
-                    HandBrakeCLI "${preset[@]}" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                    HandBrakeCLI "${preset[@]}" -i "$finalRawFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                         log "HandBrake: $line" "INFO"
                     done
                     ;;
@@ -573,7 +701,7 @@ evaluate_and_cleanup() {
                         preset=(--preset "$sdPresetName")
                     fi
                     log "Running HandBrakeCLI encoder..." "PROCESS"
-                    HandBrakeCLI "${preset[@]}" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                    HandBrakeCLI "${preset[@]}" -i "$finalRawFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                         log "HandBrake: $line" "INFO"
                     done
                     ;;
@@ -581,7 +709,7 @@ evaluate_and_cleanup() {
                     # Fallback to HD preset
                     log "Could not determine resolution, using default HD preset: $hdPresetName" "WARNING"
                     log "Running HandBrakeCLI encoder..." "PROCESS"
-                    HandBrakeCLI --preset "$hdPresetName" -i "$tempFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
+                    HandBrakeCLI --preset "$hdPresetName" -i "$finalRawFile" -o "$finalEncodedFile" 2>&1 | while read -r line; do
                         log "HandBrake: $line" "INFO"
                     done
                     ;;
@@ -591,37 +719,44 @@ evaluate_and_cleanup() {
         # Check if encoding was successful
         if [ -f "$finalEncodedFile" ]; then
             log "Successfully encoded final file: $finalEncodedFile" "SUCCESS"
-            # Move the temp file to the raw directory for archiving
-            mv "$tempFile" "$finalRawFile"
-            log "Original file saved as: $finalRawFile" "INFO"
-            outputFile="$finalEncodedFile"
+            
+            # If SMB sharing is enabled, copy the encoded file and delete both encoded and raw files
+            if [ "$useSmbShare" = true ]; then
+                log "Moving encoded file to SMB share..." "PROCESS"
+                move_file_to_smb_share "$finalEncodedFile" true "$finalRawFile"
+                outputFile="" # File was deleted after SMB transfer
+            else
+                # Keep the files locally
+                outputFile="$finalEncodedFile"
+            fi
         else
             log "Encoding failed, using raw file as final" "WARNING"
-            mv "$tempFile" "$finalRawFile"
-            outputFile="$finalRawFile"
+            
+            # If SMB sharing is enabled, copy the raw file
+            if [ "$useSmbShare" = true ]; then
+                log "Moving raw file to SMB share..." "PROCESS"
+                move_file_to_smb_share "$finalRawFile"
+                outputFile="" # File was deleted after SMB transfer
+            else
+                outputFile="$finalRawFile"
+            fi
         fi
     else
-        # No HandBrake encoding needed, just use the temp file as final raw
-        if [ "$skip_encode" = true ]; then
-            log "Skipping encoding as requested by --no-encode flag" "INFO"
+        # No encoding, just move the file to raw directory
+        log "Skipping encoding, moving selected title directly to raw directory" "INFO"
+        mv "$selectedTitle" "$finalRawFile"
+        
+        # If SMB sharing is enabled, copy the raw file
+        if [ "$useSmbShare" = true ]; then
+            log "Moving raw file to SMB share..." "PROCESS"
+            move_file_to_smb_share "$finalRawFile"
+            outputFile="" # File was deleted after SMB transfer
         else
-            log "No encoding configuration provided, skipping encoding" "INFO"
+            outputFile="$finalRawFile"
         fi
-        mv "$tempFile" "$finalRawFile"
-        outputFile="$finalRawFile"
     fi
-    
-    # Show file details
-    local finalSize=$(du -h "$outputFile" | cut -f1)
-    log "Final file size: $finalSize" "INFO"
-    
-    # Clean up temporary rip directory
-    log "Cleaning up temporary files..." "INFO"
-    rm -rf "$ripDir"
-    log "Temporary directory removed" "INFO"
-    
-    echo "$outputFile"
 }
+
 
 # Function to mount SMB share
 mount_smb_share() {
@@ -657,6 +792,8 @@ mount_smb_share() {
 # Function to move file to SMB share
 move_file_to_smb_share() {
     local file=$1
+    local is_encoded_file=${2:-false}  # Flag to indicate if this is a Handbrake-encoded file
+    local raw_source_file=${3:-""}     # Original raw file path (only needed for encoded files)
     
     if [ ! -f "$file" ]; then
         log "Error: File $file does not exist" "ERROR"
@@ -674,7 +811,6 @@ move_file_to_smb_share() {
     
     local filename=$(basename "$file")
     local filesize=$(du -h "$file" | cut -f1)
-    
     log "Moving file \"$filename\" ($filesize) to SMB share..." "PROCESS"
     log "Destination: $mountPoint/" "INFO"
     
@@ -692,17 +828,32 @@ move_file_to_smb_share() {
     
     if [ $? -eq 0 ]; then
         log "Successfully copied \"$filename\" to SMB share" "SUCCESS"
-        # log "Removing local copy..." "INFO"
-        # rm "$file"
-        # if [ $? -eq 0 ]; then
-        #     log "Local copy removed" "INFO"
-        # else
-        #     log "Warning: Failed to remove local copy" "WARNING"
-        # fi
+        
+        # Always delete the file that was just copied
+        log "Removing local copy of \"$filename\"..." "INFO"
+        rm "$file"
+        if [ $? -eq 0 ]; then
+            log "Local copy of \"$filename\" removed" "INFO"
+        else
+            log "Warning: Failed to remove local copy of \"$filename\"" "WARNING"
+        fi
+        
+        # If this is an encoded file, also delete the original raw file
+        if [ "$is_encoded_file" = true ] && [ -n "$raw_source_file" ] && [ -f "$raw_source_file" ]; then
+            log "Removing original raw file \"$(basename "$raw_source_file")\"..." "INFO"
+            rm "$raw_source_file"
+            if [ $? -eq 0 ]; then
+                log "Original raw file removed" "INFO"
+            else
+                log "Warning: Failed to remove original raw file" "WARNING"
+            fi
+        fi
     else
         log "Failed to copy file to SMB share" "ERROR"
         return 1
     fi
+    
+    return 0
 }
 
 # Function to handle the complete ripping process
@@ -744,19 +895,10 @@ process_disc() {
         return 1
     fi
     
-    # Validate finalFile exists
-    if [ ! -f "$finalFile" ]; then
+    # Validate finalFile exists if not using SMB
+    if [ -n "$finalFile" ] && [ ! -f "$finalFile" ]; then
         log "Final file does not exist: $finalFile" "ERROR"
         return 1
-    fi
-
-    if [ "$useSmbShare" = true ]; then
-        # Move to SMB share
-        log "Preparing to transfer file to network storage..." "PROCESS"
-        if ! move_file_to_smb_share "$finalFile"; then
-            log "Failed to move file to SMB share" "ERROR"
-            return 1
-        fi
     fi
 
     # Eject the disc
@@ -793,15 +935,32 @@ fi
 lastKeyUpdate=$(date +%s)
 lastDiscState="false"
 discWaitCount=0
+lastActivityTime=$(date +%s)
+SHUTDOWN_TIMEOUT=10800  # 3 hours in seconds (3 * 60 * 60)
 
 log "Entering main monitoring loop"
 
+# Auto-shutdown status message
+if [ "$auto_shutdown" = true ]; then
+    log "Auto-shutdown is ENABLED - system will shutdown after 3 hours of no disc activity" "WARNING"
+else
+    log "Auto-shutdown is DISABLED (--no-shutdown flag was used)" "INFO"
+fi
+
+# Eject any disc that might be in the drive at startup
+eject_disc
+sleep 10
+
 while true; do
     currentDiscState=$(check_disc_in_drive)
+    currentTime=$(date +%s)
     
     # Only proceed if the drive state has changed to "disc inserted"
     if [[ "$currentDiscState" == "true" && "$lastDiscState" == "false" ]]; then
         log "Disc detected in drive $drive"
+        
+        # Reset activity timer when disc is detected
+        lastActivityTime=$(date +%s)
         
         # Wait a moment for the disc to be fully readable
         log "Waiting for disc to become ready..."
@@ -809,6 +968,9 @@ while true; do
         
         # Process the disc
         process_disc
+        
+        # Update activity time after processing completes
+        lastActivityTime=$(date +%s)
         
         # Update state
         lastDiscState="false"
@@ -824,12 +986,35 @@ while true; do
         if [ $((discWaitCount % 10)) -eq 0 ]; then
             log "No disc detected. Waiting..."
         fi
+        
         # Check for key update every 24 hours
         now=$(date +%s)
         if (( now > lastKeyUpdate + 86400 )); then
-
             update_makemkv_key
             lastKeyUpdate="$now"
+        fi
+        
+        # Check for shutdown timeout (only if auto_shutdown is enabled)
+        if [ "$auto_shutdown" = true ]; then
+            timeSinceActivity=$((currentTime - lastActivityTime))
+            
+            # Log warning at 2 hours 45 minutes (15 minutes before shutdown)
+            if [ $timeSinceActivity -ge 9900 ] && [ $timeSinceActivity -lt 9930 ]; then
+                log "WARNING: No disc activity for 2 hours 45 minutes. System will shutdown in 15 minutes if no disc is inserted." "WARNING"
+            fi
+            
+            if [ $timeSinceActivity -ge $SHUTDOWN_TIMEOUT ]; then
+                log "No disc detected for 3 hours. Initiating shutdown sequence..." "WARNING"
+                
+                # Close the disc tray before shutdown
+                log "Closing disc tray before shutdown..." "PROCESS"
+                close_tray
+                sleep 2
+                
+                log "Shutting down system now..." "WARNING"
+                sudo shutdown -h now
+                exit 0
+            fi
         fi
     fi
     
