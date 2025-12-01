@@ -7,7 +7,7 @@ A bash script that automates the process of ripping and encoding movies on Physi
 This was developed and tested for Debian 12 and a vanilla Ubuntu Server 22.04. This will require a libre-drive compatible optical drive already flashed and tested.
 
 ### Basic usage
-`./AutoRipper.sh`
+`cd` to where this repo was cloned to and simply run `./AutoRipper.sh`
 - This will install all needed dependencies and build MakeMKV, HandBrake, and begin ripping + encoding the disk already inserted. The included preset files will be chosen depending on the format type.
 
 ### Advanced usage (WIP)
@@ -39,3 +39,5 @@ If the MakeMKV beta key is expired and the forum has not updated to a new beta k
 If HandBrake is already installed, it is **strongly** recommended to remove it. This script compiles it with all the libraries to ensure it can encode Dolby Vision and other HDR formats.
 
 If MakeMKV is already installed on the system, ensure it's properly added to the PATH so the script can leverage it; otherwise, I also recommend a fresh instance to avoid problems.
+
+If MakeMKV complains about being out of date **and** it was installed via this script, simply remove the directory where it was installed in, or remove the application from the path. It will update and recompile the application.
