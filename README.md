@@ -4,7 +4,7 @@ A bash script that automates the process of ripping and encoding movies on Physi
 **This is a WIP with more substantial documation inbound. Stay tuned...**
 
 ### Requirements
-This was developed and tested for Debian 12 and a vanilla Ubuntu Server 22.04. This will require a libre-drive compatible optical drive already flashed and tested.
+This was developed and tested for Debian 12 and a vanilla Ubuntu Server 22.04. This will require a libre-drive compatible optical drive already flashed and tested, & the current user under which this script is running to be part of the `sudoers`
 
 ### Basic usage
 `cd` to where this repo was cloned to and simply run `./AutoRipper.sh`

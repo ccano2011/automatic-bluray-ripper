@@ -1012,7 +1012,7 @@ while true; do
                 sleep 2
                 
                 log "Shutting down system now..." "WARNING"
-                sudo shutdown -h now
+                shutdown -h now
                 exit 0
             fi
         fi
